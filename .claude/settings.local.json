@@ -3,7 +3,8 @@
     "allow": [
       "Bash(python3 demo/assess.py)",
       "Bash(ls ~/Library/Caches/ms-playwright 2>&1 | head)",
-      "Bash(python3 -m playwright install webkit)"
+      "Bash(python3 -m playwright install webkit)",
+      "Bash(python3 demo/assess.py --stress-only)"
     ]
   }
 }

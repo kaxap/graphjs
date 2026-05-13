@@ -15,6 +15,7 @@ Run: python3 demo/assess.py [chromium|webkit ...]
 
 from __future__ import annotations
 import sys
+import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, Page, ConsoleMessage
 
@@ -264,11 +265,122 @@ def run_suite(engine: str) -> int:
     return report.summary()
 
 
+def run_stress(engine: str) -> int:
+    """Load demo/large.html — 1000 nodes / 3000 edges — and verify the
+    library handles it. Reports timings and exercises drag/pan."""
+    print(f"\n=========================  {engine.upper()} — STRESS  =========================")
+    report = Report()
+    console_errors: list[str] = []
+    out = OUT / engine
+    out.mkdir(exist_ok=True)
+    LARGE_URL = (ROOT / "large.html").as_uri()
+
+    with sync_playwright() as p:
+        browser = getattr(p, engine).launch(headless=True)
+        ctx = browser.new_context(viewport={"width": 1280, "height": 800}, device_scale_factor=2)
+        page = ctx.new_page()
+        page.on("console", lambda m: console_errors.append(f"{m.type}: {m.text}") if m.type in ("error", "warning") else None)
+        page.on("pageerror", lambda e: console_errors.append(f"pageerror: {e}"))
+
+        t0 = time.perf_counter()
+        page.goto(LARGE_URL)
+        page.wait_for_function("window.__demo && window.__demo.graph", timeout=15000)
+        load_ms = (time.perf_counter() - t0) * 1000
+        page.wait_for_timeout(400)  # let FPS meter settle, initial draw complete
+
+        # --- Scale checks -------------------------------------------------
+        print("\nScale:")
+        n_count = page.evaluate("window.__demo.graph.nodes.length")
+        e_count = page.evaluate("window.__demo.graph.edges.length")
+        report.add("1000 nodes loaded", n_count == 1000, f"got {n_count}")
+        report.add("3000 edges loaded", e_count == 3000, f"got {e_count}")
+        dom_nodes = page.locator(".gv-node").count()
+        report.add("1000 DOM node cards rendered", dom_nodes == 1000, f"got {dom_nodes}")
+
+        # --- Build time ---------------------------------------------------
+        timing = page.evaluate("window.__demo.timing")
+        report.add("Page load < 5000 ms", load_ms < 5000, f"{load_ms:.0f} ms")
+        report.add("Graph construction < 2000 ms", timing["buildMs"] < 2000, f"build={timing['buildMs']:.0f} ms")
+
+        # --- Canvas painted -----------------------------------------------
+        has_pixels, frac = canvas_nonempty(page)
+        report.add("Canvas has painted edges", has_pixels, f"{frac:.1%} of sampled region painted")
+        page.screenshot(path=str(out / "stress-01-fit.png"))
+
+        # --- Drag perf: incremental geometry rebuild should keep this snappy
+        print("\nDrag perf:")
+        before = page.evaluate("window.__demo.graph.getNodePosition('n500')")
+        # Walk a path of mousemove samples and time the round-trip.
+        box = page.locator('[data-node-id="n500"]').bounding_box()
+        if box:
+            cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+            page.mouse.move(cx, cy)
+            page.mouse.down()
+            drag_t0 = time.perf_counter()
+            for k in range(1, 21):
+                page.mouse.move(cx + k * 6, cy + k * 3)
+            drag_ms = (time.perf_counter() - drag_t0) * 1000
+            page.mouse.up()
+            page.wait_for_timeout(50)
+            after = page.evaluate("window.__demo.graph.getNodePosition('n500')")
+            moved = abs(after["x"] - before["x"]) > 20
+            report.add("20-step drag completes", moved, f"Δx={after['x']-before['x']:.0f}px in {drag_ms:.0f} ms")
+            # Soft perf budget: 20 mousemoves shouldn't exceed ~600 ms total.
+            report.add("Drag latency < 800 ms (20 steps)", drag_ms < 800, f"{drag_ms:.0f} ms")
+        else:
+            report.add("Node n500 visible for drag test", False)
+
+        # --- Pan + zoom still responsive ----------------------------------
+        print("\nViewport:")
+        page.locator('.gv-toolbar [data-id="zoom-in"]').click()
+        page.locator('.gv-toolbar [data-id="zoom-in"]').click()
+        page.wait_for_timeout(80)
+        page.locator('.gv-toolbar [data-id="fit"]').click()
+        page.wait_for_timeout(150)
+        v = page.evaluate("window.__demo.graph.getViewport()")
+        report.add("Fit reduces zoom to fit large graph", v["zoom"] < 0.5, f"zoom={v['zoom']:.3f}")
+        page.screenshot(path=str(out / "stress-02-zoomed.png"))
+
+        # --- FPS sample ---------------------------------------------------
+        # Read the visible FPS indicator; it's updated every 500ms.
+        page.wait_for_timeout(700)
+        fps_text = page.locator("#stat-fps").text_content()
+        try:
+            fps = float(fps_text)
+        except (TypeError, ValueError):
+            fps = -1
+        report.add("Idle FPS measured", fps >= 0, f"fps={fps_text}")
+        report.add("Idle FPS >= 30", fps >= 30, f"fps={fps}")
+
+        # --- TB direction with 1000 nodes (perf-sensitive relayout) -------
+        print("\nDirection toggle perf:")
+        t_dir0 = time.perf_counter()
+        page.locator('.gv-toolbar [data-id="dir-tb"]').click()
+        page.wait_for_timeout(120)
+        dir_ms = (time.perf_counter() - t_dir0) * 1000
+        report.add("TB relayout completes", page.evaluate("window.__demo.graph.getDirection()") == "TB",
+                   f"{dir_ms:.0f} ms total")
+        page.screenshot(path=str(out / "stress-03-tb.png"))
+
+        # --- Console -------------------------------------------------------
+        report.add("No console errors/warnings", len(console_errors) == 0, "; ".join(console_errors[:3]))
+
+        browser.close()
+
+    print(f"\nScreenshots in: {out}")
+    return report.summary()
+
+
 def main() -> int:
-    engines = sys.argv[1:] or ["chromium", "webkit"]
+    args = sys.argv[1:]
+    stress_only = "--stress-only" in args
+    args = [a for a in args if a != "--stress-only"]
+    engines = args or ["chromium", "webkit"]
     rc = 0
     for e in engines:
-        rc |= run_suite(e)
+        if not stress_only:
+            rc |= run_suite(e)
+        rc |= run_stress(e)
     return rc
 
 

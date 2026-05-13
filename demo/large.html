@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>graph.js — 1000 nodes / 3000 edges</title>
+    <link rel="stylesheet" href="graph.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      /* Compact node shell for the stress test. */
+      .gv-node.mini {
+        padding: 0;
+        display: flex;
+        align-items: center;
+      }
+      .mini__bar {
+        width: 4px;
+        align-self: stretch;
+        border-top-left-radius: 9px;
+        border-bottom-left-radius: 9px;
+        flex: 0 0 4px;
+      }
+      .mini__label {
+        padding: 0 8px;
+        font-size: 11px;
+        font-weight: 500;
+        color: #0f172a;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
+      }
+
+      .stats {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 11px;
+        color: #64748b;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06),
+          0 4px 12px rgba(15, 23, 42, 0.06);
+        z-index: 10;
+        display: flex;
+        gap: 16px;
+        font-variant-numeric: tabular-nums;
+      }
+      .stats strong { color: #0f172a; font-weight: 600; }
+      .stats__fps.is-good { color: #047857; }
+      .stats__fps.is-mid  { color: #b45309; }
+      .stats__fps.is-bad  { color: #b91c1c; }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__title">
+        <span class="topbar__logo">◆</span>
+        <span>graph.js — stress test</span>
+      </div>
+      <div class="topbar__hint">
+        <a href="index.html" style="color: #2563eb; text-decoration: none;">← back to lineage demo</a>
+      </div>
+    </header>
+
+    <main id="graph" class="graph-host">
+      <div class="stats">
+        <div><strong id="stat-nodes">0</strong> nodes</div>
+        <div><strong id="stat-edges">0</strong> edges</div>
+        <div>FPS <strong class="stats__fps" id="stat-fps">—</strong></div>
+        <div>build <strong id="stat-build">—</strong> ms</div>
+      </div>
+    </main>
+
+    <script src="graph.js"></script>
+    <script src="large.js"></script>
+  </body>
+</html>
