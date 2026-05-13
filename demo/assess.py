@@ -1,11 +1,16 @@
 """
-Playwright assessment of the static lineage demo.
+Playwright assessment of the general-purpose `Graph` library, run against
+the lineage demo (which uses Graph + custom renderNode + custom edgeStyle
++ custom toolbar button).
 
-Runs against Chromium and WebKit (Safari engine). Drives the page through
-the library's public API (window.__demo.graph) and uses real mouse events
-for drag / pan.
+Runs Chromium and WebKit. Verifies:
+  - Library exposes general API (no lineage assumptions)
+  - Default rendering works for a plain {id,label} graph
+  - Customization hooks (renderNode, edgeStyle, addToolbarButton) take effect
+  - Selection, drag, pan, zoom, fit, direction toggle, expand callback
+  - destroy() tears down cleanly
 
-Run:  python3 demo/assess.py [chromium|webkit ...]
+Run: python3 demo/assess.py [chromium|webkit ...]
 """
 
 from __future__ import annotations
@@ -25,8 +30,7 @@ class Report:
 
     def add(self, name: str, ok: bool, detail: str = "") -> None:
         self.rows.append((name, ok, detail))
-        mark = "PASS" if ok else "FAIL"
-        print(f"  [{mark}] {name}{(' — ' + detail) if detail else ''}")
+        print(f"  [{'PASS' if ok else 'FAIL'}] {name}{(' — ' + detail) if detail else ''}")
 
     def summary(self) -> int:
         passed = sum(1 for _, ok, _ in self.rows if ok)
@@ -38,7 +42,7 @@ class Report:
 def canvas_nonempty(page: Page) -> tuple[bool, float]:
     return page.evaluate(
         """() => {
-            const c = document.querySelector('.lg__canvas');
+            const c = document.querySelector('.gv__canvas');
             const ctx = c.getContext('2d');
             const w = Math.min(400, c.width), h = Math.min(400, c.height);
             const x = (c.width - w) / 2, y = (c.height - h) / 2;
@@ -61,85 +65,109 @@ def run_suite(engine: str) -> int:
         browser = getattr(p, engine).launch(headless=True)
         ctx = browser.new_context(viewport={"width": 1280, "height": 800}, device_scale_factor=2)
         page = ctx.new_page()
-
-        def on_console(msg: ConsoleMessage) -> None:
-            if msg.type in ("error", "warning"):
-                console_errors.append(f"{msg.type}: {msg.text}")
-        page.on("console", on_console)
+        page.on("console", lambda m: console_errors.append(f"{m.type}: {m.text}") if m.type in ("error", "warning") else None)
         page.on("pageerror", lambda e: console_errors.append(f"pageerror: {e}"))
 
         page.goto(INDEX_URL)
-        page.wait_for_selector(".lg")
+        page.wait_for_selector(".gv")
         page.wait_for_function("window.__demo && window.__demo.graph")
         page.wait_for_timeout(200)
 
-        # --- Library presence & init -------------------------------------
-        print("\nLibrary init:")
-        report.add("LineageGraph constructor exposed", page.evaluate("typeof LineageGraph === 'function'"))
-        version = page.evaluate("LineageGraph.VERSION")
-        report.add("Library version set", bool(version), str(version))
-        report.add("9 node cards rendered", page.locator(".lg-node").count() == 9)
+        # --- Library is general-purpose ----------------------------------
+        print("\nLibrary surface:")
+        report.add("Graph constructor exposed globally", page.evaluate("typeof Graph === 'function'"))
+        report.add("Version present", bool(page.evaluate("Graph.VERSION")), str(page.evaluate("Graph.VERSION")))
+        # No lineage-specific names should leak from the library.
+        leaked = page.evaluate("typeof LineageGraph !== 'undefined' || /lineage/i.test(Graph.toString().slice(0, 500))")
+        report.add("No 'LineageGraph' / 'lineage' identifiers in library", not leaked)
+
+        # --- Default rendering works for a plain {id,label} graph --------
+        print("\nDefault rendering (no customization):")
+        plain = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width = '500px'; el.style.height = '300px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes: [{id:'a', label:'Alpha'}, {id:'b', label:'Beta'}, {id:'c', label:'Gamma'}],
+                    edges: [{id:'e1', source:'a', target:'b'}, {id:'e2', source:'b', target:'c'}],
+                });
+                const labels = Array.from(el.querySelectorAll('.gv-node__label')).map(x => x.textContent);
+                const result = { labels, hasCanvas: !!el.querySelector('.gv__canvas') };
+                g.destroy();
+                el.remove();
+                return result;
+            }"""
+        )
+        report.add("Default renderer shows .gv-node__label", plain["labels"] == ["Alpha", "Beta", "Gamma"], str(plain["labels"]))
+        report.add("Library mounts a canvas", plain["hasCanvas"])
+
+        # --- Custom renderNode in the lineage demo -----------------------
+        print("\nCustom renderNode hook:")
+        # The demo's renderLineageNode adds .lineage-card class and a .lineage-card__title.
+        report.add("renderNode applies custom class .lineage-card", page.locator(".gv-node.lineage-card").count() == 9)
+        report.add("renderNode produces .lineage-card__title", page.locator(".lineage-card__title").count() == 9)
+        # Default .gv-node__label should NOT appear (custom render replaced it).
+        report.add("Default label markup is replaced", page.locator(".gv-node .gv-node__label").count() == 0)
+
+        # --- Custom edgeStyle hook ---------------------------------------
+        print("\nCustom edgeStyle hook:")
         has_pixels, frac = canvas_nonempty(page)
-        report.add("Canvas has painted edges", has_pixels, f"{frac:.1%} of sampled region painted")
-        report.add("Toolbar rendered by library", page.locator(".lg-controls").is_visible())
-        report.add("Legend rendered by library", page.locator(".lg-legend").is_visible())
+        report.add("Canvas has painted edges (custom styles)", has_pixels, f"{frac:.1%}")
         page.screenshot(path=str(out / "01-initial.png"))
 
-        # --- Public API: getViewport / fitView ---------------------------
-        print("\nPublic API:")
-        vp = page.evaluate("window.__demo.graph.getViewport()")
-        report.add("getViewport returns {x,y,zoom}", all(k in vp for k in ("x", "y", "zoom")), str(vp))
-        page.evaluate("window.__demo.graph.zoomIn()")
-        vp2 = page.evaluate("window.__demo.graph.getViewport()")
-        report.add("zoomIn() increases zoom", vp2["zoom"] > vp["zoom"], f"{vp['zoom']:.3f} → {vp2['zoom']:.3f}")
-        page.evaluate("window.__demo.graph.fitView()")
-        page.wait_for_timeout(80)
+        # --- Custom toolbar button via addToolbarButton ------------------
+        print("\nCustom toolbar button:")
+        report.add("addToolbarButton added the Cols button",
+                   page.locator('.gv-toolbar [data-id="cols"]').count() == 1)
+        page.locator('.gv-toolbar [data-id="cols"]').click()
+        page.wait_for_timeout(100)
+        report.add("Cols button toggles user-state", page.evaluate("window.__demo.showColumns") is True)
+        # Edges count in the library should have grown.
+        col_count = page.evaluate("window.__demo.graph.edges.filter(e => e.kind === 'columnLineage').length")
+        report.add("Library now holds column-lineage edges", col_count == 2, f"count={col_count}")
+        # Toggle off.
+        page.locator('.gv-toolbar [data-id="cols"]').click()
+        page.wait_for_timeout(60)
+        col_after = page.evaluate("window.__demo.graph.edges.filter(e => e.kind === 'columnLineage').length")
+        report.add("Toggle off removes column edges from library", col_after == 0)
 
-        # --- Selection via API + DOM verification ------------------------
+        # --- Built-in toolbar buttons (zoom / fit / direction) -----------
+        print("\nBuilt-in toolbar:")
+        v0 = page.evaluate("window.__demo.graph.getViewport()")
+        page.locator('.gv-toolbar [data-id="zoom-in"]').click()
+        page.wait_for_timeout(40)
+        v1 = page.evaluate("window.__demo.graph.getViewport()")
+        report.add("zoom-in button increases zoom", v1["zoom"] > v0["zoom"], f"{v0['zoom']:.3f} → {v1['zoom']:.3f}")
+        page.locator('.gv-toolbar [data-id="fit"]').click()
+        page.wait_for_timeout(80)
+        # Direction toggle.
+        page.locator('.gv-toolbar [data-id="dir-tb"]').click()
+        page.wait_for_timeout(120)
+        report.add("dir-tb button switches direction", page.evaluate("window.__demo.graph.getDirection()") == "TB")
+        tb_pressed = page.locator('.gv-toolbar [data-id="dir-tb"]').get_attribute("aria-pressed")
+        report.add("dir-tb shows aria-pressed=true", tb_pressed == "true")
+        page.screenshot(path=str(out / "02-tb.png"))
+        page.locator('.gv-toolbar [data-id="dir-lr"]').click()
+        page.wait_for_timeout(120)
+
+        # --- Selection (library API) -------------------------------------
         print("\nSelection:")
         page.evaluate("window.__demo.graph.selectNode('table.mart.orders')")
-        page.wait_for_timeout(60)
-        sel_class = page.locator('[data-node-id="table.mart.orders"]').get_attribute("class") or ""
-        report.add("selectNode applies is-selected class", "is-selected" in sel_class)
-        # Click pane → clear.
+        page.wait_for_timeout(50)
+        report.add("selectNode() sets is-selected",
+                   "is-selected" in (page.locator('[data-node-id="table.mart.orders"]').get_attribute("class") or ""))
+        sel = page.evaluate("window.__demo.graph.getSelection()")
+        report.add("getSelection returns selected node", sel.get("nodeId") == "table.mart.orders", str(sel))
+        page.screenshot(path=str(out / "03-selected.png"))
         page.mouse.click(20, 300)
         page.wait_for_timeout(60)
-        sel_class = page.locator('[data-node-id="table.mart.orders"]').get_attribute("class") or ""
-        report.add("Pane click clears selection", "is-selected" not in sel_class)
-        page.screenshot(path=str(out / "02-selected.png"))
+        sel = page.evaluate("window.__demo.graph.getSelection()")
+        report.add("Pane click clears selection", sel.get("nodeId") is None)
 
-        # --- Toolbar: direction toggle -----------------------------------
-        print("\nToolbar direction:")
-        page.locator('.lg-controls [data-action="dir-tb"]').click()
-        page.wait_for_timeout(120)
-        tb_active = "is-active" in (page.locator('.lg-controls [data-action="dir-tb"]').get_attribute("class") or "")
-        report.add("TB button shows is-active", tb_active)
-        # In TB layout, topic.orders.y < mart.y.
-        y_topic = page.evaluate("window.__demo.graph.getNodePosition('topic.orders').y")
-        y_mart = page.evaluate("window.__demo.graph.getNodePosition('table.mart.orders').y")
-        report.add("TB layout: topic above mart in y", y_topic < y_mart, f"{y_topic} < {y_mart}")
-        page.screenshot(path=str(out / "03-tb.png"))
-        # Switch back.
-        page.locator('.lg-controls [data-action="dir-lr"]').click()
-        page.wait_for_timeout(120)
-
-        # --- Column-lineage toggle ---------------------------------------
-        print("\nColumn lineage:")
-        before = page.evaluate("window.__demo.edges.filter(e => e.type === 'columnLineage').length")
-        page.locator('.lg-controls [data-action="cols"]').click()
-        page.wait_for_timeout(80)
-        # The geometry map should now include column edges.
-        col_geom = page.evaluate(
-            "Object.values(window.__demo.graph._state.geometry).filter(g => g.edge.type === 'columnLineage').length"
-        )
-        report.add("Column-lineage geometry present when toggled on", col_geom == before, f"{col_geom} == {before}")
-        page.screenshot(path=str(out / "04-columns.png"))
-        page.locator('.lg-controls [data-action="cols"]').click()
-        page.wait_for_timeout(80)
-
-        # --- Node drag (real pointer events) -----------------------------
+        # --- Node drag (pointer events) ----------------------------------
         print("\nNode drag:")
-        page.locator('.lg-controls [data-action="fit"]').click()
+        page.locator('.gv-toolbar [data-id="fit"]').click()
         page.wait_for_timeout(120)
         before = page.evaluate("window.__demo.graph.getNodePosition('table.mart.orders')")
         box = page.locator('[data-node-id="table.mart.orders"]').bounding_box()
@@ -151,63 +179,80 @@ def run_suite(engine: str) -> int:
         page.wait_for_timeout(80)
         after = page.evaluate("window.__demo.graph.getNodePosition('table.mart.orders')")
         moved = abs(after["x"] - before["x"]) > 5 or abs(after["y"] - before["y"]) > 5
-        report.add("Drag moves node via library", moved, f"Δx={after['x'] - before['x']:.0f}, Δy={after['y'] - before['y']:.0f}")
-        sel_class = page.locator('[data-node-id="table.mart.orders"]').get_attribute("class") or ""
-        report.add("Drag does not trigger selection", "is-selected" not in sel_class)
-        page.screenshot(path=str(out / "05-dragged.png"))
+        report.add("Drag moves node", moved, f"Δx={after['x']-before['x']:.0f}, Δy={after['y']-before['y']:.0f}")
+        sel_cls = page.locator('[data-node-id="table.mart.orders"]').get_attribute("class") or ""
+        report.add("Drag does not trigger selection", "is-selected" not in sel_cls)
+        page.screenshot(path=str(out / "04-dragged.png"))
 
-        # --- Expand callbacks via library --------------------------------
-        print("\nExpand callbacks:")
-        n_before = page.evaluate("window.__demo.graph.nodes.length")
-        e_before = page.evaluate("window.__demo.graph.edges.length")
+        # --- Expand callback (general API, not lineage-specific) ---------
+        print("\nExpand callback:")
+        n0 = page.evaluate("window.__demo.graph.nodes.length")
         page.locator('[data-node-id="table.raw.orders"] [data-expand="down"]').click()
         page.wait_for_timeout(120)
-        n_after = page.evaluate("window.__demo.graph.nodes.length")
-        e_after = page.evaluate("window.__demo.graph.edges.length")
-        report.add("Downstream expand adds a node", n_after == n_before + 1, f"{n_before} → {n_after}")
-        report.add("Downstream expand adds an edge", e_after == e_before + 1, f"{e_before} → {e_after}")
-        last_edge = page.evaluate("window.__demo.graph.edges[window.__demo.graph.edges.length - 1]")
-        report.add("Downstream edge source = raw_orders", last_edge["source"] == "table.raw.orders")
-
+        n1 = page.evaluate("window.__demo.graph.nodes.length")
+        report.add("onExpand 'down' grows the graph", n1 == n0 + 1, f"{n0} → {n1}")
+        last = page.evaluate("window.__demo.graph.edges[window.__demo.graph.edges.length - 1]")
+        report.add("New edge source = clicked node", last["source"] == "table.raw.orders")
         page.locator('[data-node-id="topic.orders"] [data-expand="up"]').click()
         page.wait_for_timeout(120)
-        last_edge = page.evaluate("window.__demo.graph.edges[window.__demo.graph.edges.length - 1]")
-        report.add("Upstream edge target = orders.events", last_edge["target"] == "topic.orders")
-        page.locator('.lg-controls [data-action="fit"]').click()
+        last = page.evaluate("window.__demo.graph.edges[window.__demo.graph.edges.length - 1]")
+        report.add("'up' edge target = clicked node", last["target"] == "topic.orders")
+        page.locator('.gv-toolbar [data-id="fit"]').click()
         page.wait_for_timeout(120)
-        page.screenshot(path=str(out / "06-expanded.png"))
+        page.screenshot(path=str(out / "05-expanded.png"))
 
-        # --- Pane drag (pan) ---------------------------------------------
+        # --- Pan ---------------------------------------------------------
         print("\nPan:")
         v0 = page.evaluate("window.__demo.graph.getViewport()")
         rect = page.evaluate("document.getElementById('graph').getBoundingClientRect().toJSON()")
-        sx = rect["x"] + rect["width"] - 30
-        sy = rect["y"] + 200
-        page.mouse.move(sx, sy)
-        page.mouse.down()
+        sx, sy = rect["x"] + rect["width"] - 30, rect["y"] + 200
+        page.mouse.move(sx, sy); page.mouse.down()
         page.mouse.move(sx - 80, sy + 40, steps=10)
         page.mouse.up()
         page.wait_for_timeout(60)
         v1 = page.evaluate("window.__demo.graph.getViewport()")
         report.add("Pane drag pans viewport", v1["x"] != v0["x"] or v1["y"] != v0["y"], f"Δx={v1['x']-v0['x']:.0f}, Δy={v1['y']-v0['y']:.0f}")
 
-        # --- destroy() cleans up DOM -------------------------------------
-        print("\nLifecycle:")
-        # Create a scratch container, mount a library instance, destroy it.
-        cleaned = page.evaluate(
+        # --- Per-node position override (general feature) ----------------
+        print("\nStatic positions:")
+        static = page.evaluate(
             """() => {
                 const el = document.createElement('div');
                 el.style.width = '400px'; el.style.height = '300px';
                 document.body.appendChild(el);
-                const g = new LineageGraph(el, { nodes: [{id:'a', name:'a'}], edges: [] });
-                const had = el.querySelector('.lg__canvas') != null;
+                const g = new Graph(el, {
+                    nodes: [
+                      { id: 'a', label: 'A', position: { x: 50, y: 50 } },
+                      { id: 'b', label: 'B', position: { x: 200, y: 150 } },
+                    ],
+                    edges: [{ id: 'e', source: 'a', target: 'b' }],
+                });
+                const pa = g.getNodePosition('a');
+                const pb = g.getNodePosition('b');
+                g.destroy();
+                el.remove();
+                return { pa, pb };
+            }"""
+        )
+        report.add("node.position overrides auto layout (A)", static["pa"]["x"] == 50 and static["pa"]["y"] == 50, str(static["pa"]))
+        report.add("node.position overrides auto layout (B)", static["pb"]["x"] == 200 and static["pb"]["y"] == 150, str(static["pb"]))
+
+        # --- Lifecycle ---------------------------------------------------
+        print("\nLifecycle:")
+        cleaned = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width = '300px'; el.style.height = '200px';
+                document.body.appendChild(el);
+                const g = new Graph(el, { nodes: [{id:'a'}], edges: [] });
+                const had = el.querySelector('.gv__canvas') != null;
                 g.destroy();
                 const after = el.children.length;
                 el.remove();
                 return { had, after };
             }"""
         )
-        report.add("Library mounts a canvas into the container", cleaned["had"])
+        report.add("Mounts canvas in container", cleaned["had"])
         report.add("destroy() removes all child DOM", cleaned["after"] == 0, f"children={cleaned['after']}")
 
         # --- Console clean -----------------------------------------------

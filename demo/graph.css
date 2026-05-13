@@ -1,0 +1,167 @@
+/*!
+ * graph.css — base styles for graph.js
+ *
+ * All rules are scoped under `.gv` (the container class). The library
+ * provides minimal "structural" styling — the look of each node card is
+ * up to the consumer (via renderNode + your own CSS).
+ *
+ * Theme via CSS variables:
+ *   --gv-bg, --gv-grid, --gv-surface, --gv-border, --gv-text, --gv-muted,
+ *   --gv-accent, --gv-accent-soft, --gv-shadow
+ */
+
+.gv {
+  --gv-bg: #f8fafc;
+  --gv-grid: #e2e8f0;
+  --gv-surface: #ffffff;
+  --gv-border: #e2e8f0;
+  --gv-border-strong: #cbd5e1;
+  --gv-text: #0f172a;
+  --gv-muted: #64748b;
+  --gv-accent: #2563eb;
+  --gv-accent-soft: #dbeafe;
+  --gv-shadow: 0 1px 2px rgba(15, 23, 42, 0.06),
+    0 4px 12px rgba(15, 23, 42, 0.06);
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+  background-color: var(--gv-bg);
+  background-image: radial-gradient(var(--gv-grid) 1px, transparent 1px);
+  background-size: 20px 20px;
+  color: var(--gv-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+  cursor: grab;
+}
+.gv:active { cursor: grabbing; }
+
+.gv__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+.gv__nodes {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* ---------- Node shell ---------- */
+
+.gv-node {
+  position: absolute;
+  pointer-events: auto;
+  background: var(--gv-surface);
+  border: 1px solid var(--gv-border);
+  border-radius: 10px;
+  box-shadow: var(--gv-shadow);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
+  outline: none;
+  cursor: grab;
+  transition: border-color 120ms, box-shadow 120ms, opacity 120ms;
+  /* Plain box — the user's renderNode (or the default body) controls
+     internal layout. */
+  box-sizing: border-box;
+  overflow: visible;
+}
+.gv-node * { user-select: none; -webkit-user-select: none; }
+.gv-node:active { cursor: grabbing; }
+.gv-node:hover { border-color: var(--gv-border-strong); }
+.gv-node:focus-visible {
+  border-color: var(--gv-accent);
+  box-shadow: 0 0 0 3px var(--gv-accent-soft);
+}
+.gv-node.is-selected {
+  border-color: var(--gv-accent);
+  box-shadow: 0 0 0 2px var(--gv-accent-soft), var(--gv-shadow);
+}
+
+.gv-node__body {
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+}
+.gv-node__label {
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Expand buttons ---------- */
+
+.gv-node__expand {
+  position: absolute;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--gv-border-strong);
+  background: var(--gv-surface);
+  color: var(--gv-muted);
+  font-size: 13px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  z-index: 3;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.gv-node__expand:hover { color: var(--gv-accent); border-color: var(--gv-accent); }
+/* LR: up = left, down = right */
+.gv-node__expand--LR.gv-node__expand--up   { left: -9px; top: 50%; transform: translateY(-50%); }
+.gv-node__expand--LR.gv-node__expand--down { right: -9px; top: 50%; transform: translateY(-50%); }
+/* TB: up = top, down = bottom */
+.gv-node__expand--TB.gv-node__expand--up   { top: -9px; left: 50%; transform: translateX(-50%); }
+.gv-node__expand--TB.gv-node__expand--down { bottom: -9px; left: 50%; transform: translateX(-50%); }
+
+/* ---------- Toolbar ---------- */
+
+.gv-toolbar {
+  position: absolute;
+  top: 12px; left: 12px;
+  display: flex; gap: 8px;
+  z-index: 5;
+}
+.gv-toolbar__group {
+  display: inline-flex;
+  background: var(--gv-surface);
+  border: 1px solid var(--gv-border);
+  border-radius: 8px;
+  box-shadow: var(--gv-shadow);
+  overflow: hidden;
+}
+.gv-toolbar__btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--gv-text);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 10px;
+  cursor: pointer;
+  min-width: 32px;
+  height: 30px;
+}
+.gv-toolbar__group .gv-toolbar__btn + .gv-toolbar__btn { border-left: 1px solid var(--gv-border); }
+.gv-toolbar__btn:hover { background: #f1f5f9; }
+.gv-toolbar__btn.is-active {
+  background: var(--gv-accent-soft);
+  color: var(--gv-accent);
+}

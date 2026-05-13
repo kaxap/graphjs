@@ -1,4 +1,6 @@
-/* Demo page chrome only — the graph itself is styled by lib/lineage-graph.css */
+/* ====================================================================
+   Page chrome — the topbar and the host container.
+   ==================================================================== */
 
 html, body {
   height: 100%;
@@ -14,21 +16,87 @@ html, body {
   height: 48px;
   display: flex;
   align-items: center;
-  gap: 16px;
+  justify-content: space-between;
   padding: 0 16px;
   background: #ffffff;
   border-bottom: 1px solid #e2e8f0;
 }
-.topbar__title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-}
+.topbar__title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .topbar__logo { color: #2563eb; font-size: 16px; }
-.topbar__crumbs { color: #64748b; font-size: 12px; }
+.topbar__hint { color: #64748b; font-size: 12px; }
+.topbar__hint code {
+  background: #f1f5f9; padding: 1px 6px; border-radius: 4px;
+  font-size: 11px; color: #334155;
+}
 
 .graph-host {
   height: calc(100% - 48px);
   width: 100%;
 }
+
+/* ====================================================================
+   Lineage card theming — the markup produced by `renderLineageNode` in
+   app.js. The base library knows nothing about these classes; they are
+   purely user-supplied styles.
+   ==================================================================== */
+
+.gv-node.lineage-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 0;
+}
+.lineage-card.is-deleted, .lineage-card.is-deprecated {
+  background: #f1f5f9; color: #64748b;
+}
+.lineage-card.is-deleted .lineage-card__title {
+  text-decoration: line-through;
+}
+
+.lineage-card__row {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 0 12px;
+  flex: 1;
+}
+.lineage-card__icon {
+  width: 28px; height: 28px; flex: 0 0 28px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  background: #dbeafe; color: #1d4ed8;
+}
+.lineage-card--table     .lineage-card__icon { background: #dbeafe; color: #1d4ed8; }
+.lineage-card--pipeline  .lineage-card__icon { background: #dcfce7; color: #047857; }
+.lineage-card--topic     .lineage-card__icon { background: #fee2e2; color: #b91c1c; }
+.lineage-card--dashboard .lineage-card__icon { background: #fef3c7; color: #b45309; }
+.lineage-card--mlmodel   .lineage-card__icon { background: #ede9fe; color: #6d28d9; }
+.lineage-card--database  .lineage-card__icon { background: #f1f5f9; color: #334155; }
+.lineage-card--schema    .lineage-card__icon { background: #f3e8ff; color: #7c3aed; }
+
+.lineage-card__main { min-width: 0; flex: 1; }
+.lineage-card__title {
+  font-weight: 600; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lineage-card__subtitle {
+  font-size: 11px; color: #64748b;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.lineage-card__badges {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  padding: 0 12px 10px 12px;
+}
+.badge {
+  font-size: 10px; line-height: 1;
+  padding: 3px 6px; border-radius: 999px;
+  background: #f1f5f9; color: #64748b;
+  border: 1px solid #e2e8f0; white-space: nowrap;
+}
+.badge--tier       { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.badge--domain     { background: #ede9fe; color: #5b21b6; border-color: #ddd6fe; }
+.badge--owner      { background: #e0f2fe; color: #075985; border-color: #bae6fd; }
+.badge--deleted    { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+.badge--deprecated { background: #ffedd5; color: #9a3412; border-color: #fed7aa; }
+
