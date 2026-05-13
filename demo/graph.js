@@ -150,7 +150,10 @@
     return { a: { x: s.x + s.w, y: s.y + s.h / 2 }, b: { x: t.x, y: t.y + t.h / 2 } };
   }
   function sampleBezier(a, b, dir, samples) {
-    samples = samples || 24;
+    // 16 samples produces a curve visually indistinguishable from 24 at any
+    // reasonable zoom but cuts stroke geometry by 33% — meaningful on engines
+    // (notably WebKit) where ctx.stroke time is dominated by segment count.
+    samples = samples || 16;
     var dx = b.x - a.x, dy = b.y - a.y, c1, c2;
     if (dir === "TB") {
       var off = Math.max(40, Math.abs(dy) * 0.4);
@@ -227,7 +230,16 @@
       suppressNextClick: false,
       rafScheduled: false,
       destroyed: false,
+      // Path2D cache. byStyle[styleKey] = { style, staticLines, staticArrows,
+      // dynamicLines, dynamicArrows }. Static = edges NOT touching the
+      // currently-dragged node; dynamic = the few edges that ARE.
+      // During drag, only dynamic paths are rebuilt per mousemove —
+      // turning O(E) work per frame into O(deg(node)) work.
+      pathCache: { byStyle: null, dragId: null, staticValid: false },
     };
+    // Map of node id -> DOM element, used by _renderNodes to reuse DOM
+    // across relayouts instead of recreating every card.
+    this._domNodes = {};
 
     this._buildDom();
     this._wireEvents();
@@ -405,9 +417,12 @@
       if (g) geom[g.id] = g;
     }
     this._state.geometry = geom;
+    this._invalidatePathCache();
   };
 
   // Incremental rebuild for one node's incident edges — used during drag.
+  // Does NOT invalidate the static path cache; only the dynamic portion is
+  // rebuilt in _draw, which is what makes drag cheap.
   Graph.prototype._rebuildGeometryForNode = function (nodeId) {
     var positions = this._state.positions, dir = this._state.dir;
     var geom = this._state.geometry;
@@ -419,49 +434,77 @@
     }
   };
 
+  Graph.prototype._invalidatePathCache = function () {
+    this._state.pathCache.staticValid = false;
+  };
+
   // ----- Node rendering -------------------------------------------------
 
   Graph.prototype._renderNodes = function () {
     var nodesEl = this._nodesEl;
-    nodesEl.innerHTML = "";
+    var existing = this._domNodes;
+    var next = {};
+    var selected = this._state.selectedNode;
 
     for (var i = 0; i < this.nodes.length; i++) {
       var n = this.nodes[i];
       var p = this._state.positions[n.id];
       if (!p) continue;
 
-      var el = document.createElement("div");
-      el.className = "gv-node";
-      if (n.className) el.className += " " + n.className;
-      if (this._state.selectedNode === n.id) el.classList.add("is-selected");
-      el.style.left = p.x + "px";
-      el.style.top = p.y + "px";
-      el.style.width = p.w + "px";
-      el.style.height = p.h + "px";
-      el.tabIndex = 0;
-      el.setAttribute("data-node-id", n.id);
-
-      // renderNode receives the OUTER .gv-node element — users can add
-      // their own classes, build their own internal structure, and the
-      // library's expand buttons get appended afterwards.
-      if (typeof this.options.renderNode === "function") {
-        this.options.renderNode(n, el, this);
+      var el = existing[n.id];
+      if (el) {
+        // Reuse existing element — content has not changed (only position
+        // / selection state can change across relayouts). For content
+        // changes use updateNode(), which recreates that one element.
+        if (n.className && el.className.indexOf(n.className) < 0) {
+          el.className = "gv-node" + (n.className ? " " + n.className : "");
+        }
       } else {
-        var body = document.createElement("div");
-        body.className = "gv-node__body";
-        body.innerHTML = '<div class="gv-node__label">' + escapeHtml(n.label != null ? n.label : n.id) + "</div>";
-        el.appendChild(body);
+        el = document.createElement("div");
+        el.className = "gv-node" + (n.className ? " " + n.className : "");
+        el.tabIndex = 0;
+        el.setAttribute("data-node-id", n.id);
+        if (typeof this.options.renderNode === "function") {
+          this.options.renderNode(n, el, this);
+        } else {
+          var body = document.createElement("div");
+          body.className = "gv-node__body";
+          body.innerHTML = '<div class="gv-node__label">' + escapeHtml(n.label != null ? n.label : n.id) + "</div>";
+          el.appendChild(body);
+        }
+        var ex = this._isExpandable(n);
+        if (ex.up) el.appendChild(this._buildExpandButton(n, "up"));
+        if (ex.down) el.appendChild(this._buildExpandButton(n, "down"));
+        this._wireNode(el, n);
+        nodesEl.appendChild(el);
       }
 
-      // Optional expand buttons.
-      var ex = this._isExpandable(n);
-      if (ex.up) el.appendChild(this._buildExpandButton(n, "up"));
-      if (ex.down) el.appendChild(this._buildExpandButton(n, "down"));
-
-      this._wireNode(el, n);
-      nodesEl.appendChild(el);
+      // Update style only when changed (avoids repaints in browsers that
+      // dirty layout on equal-value writes).
+      var lt = p.x + "px", tt = p.y + "px", lw = p.w + "px", lh = p.h + "px";
+      if (el.style.left !== lt)  el.style.left  = lt;
+      if (el.style.top !== tt)   el.style.top   = tt;
+      if (el.style.width !== lw) el.style.width = lw;
+      if (el.style.height !== lh) el.style.height = lh;
+      var isSel = selected === n.id;
+      if (isSel !== el.classList.contains("is-selected")) {
+        el.classList.toggle("is-selected", isSel);
+      }
+      next[n.id] = el;
     }
+
+    // Remove DOM for nodes no longer in the data.
+    for (var id in existing) {
+      if (!next[id]) existing[id].remove();
+    }
+    this._domNodes = next;
     this._applyTransform();
+  };
+
+  // Force re-render of a single node's contents (renderNode is re-run).
+  Graph.prototype._invalidateNodeDom = function (id) {
+    var el = this._domNodes[id];
+    if (el) { el.remove(); delete this._domNodes[id]; }
   };
 
   Graph.prototype._isExpandable = function (node) {
@@ -602,86 +645,166 @@
              bbox.maxY < view.minY || bbox.minY > view.maxY);
   }
 
+  // --- Path2D caching ---------------------------------------------------
+  //
+  // Building a 72k-point path with moveTo/lineTo is the hottest JS work in
+  // _draw. We cache that work as Path2D objects keyed by style, so:
+  //   - Pan/zoom doesn't rebuild paths at all (graph coords don't change).
+  //   - Drag rebuilds only the small "dynamic" path for incident edges.
+  //
+  // Each cache entry has STATIC paths (edges not incident to a drag) and
+  // DYNAMIC paths (edges incident to the currently-dragged node).
+
+  function styleKey(st) {
+    return st.stroke + "|" + st.width + "|" + (st.dash ? st.dash.join(",") : "-") + "|" + (st.arrow ? "a" : "n");
+  }
+
+  function appendLine(path, pts) {
+    path.moveTo(pts[0].x, pts[0].y);
+    for (var i = 1; i < pts.length; i++) path.lineTo(pts[i].x, pts[i].y);
+  }
+
+  function appendArrow(path, pts, width) {
+    var to = pts[pts.length - 1];
+    var from = pts[pts.length - 2];
+    var ang = Math.atan2(to.y - from.y, to.x - from.x);
+    var size = Math.max(6, width * 3);
+    var w = Math.PI / 7;
+    path.moveTo(to.x, to.y);
+    path.lineTo(to.x - size * Math.cos(ang - w), to.y - size * Math.sin(ang - w));
+    path.lineTo(to.x - size * Math.cos(ang + w), to.y - size * Math.sin(ang + w));
+    path.closePath();
+  }
+
+  Graph.prototype._buildStaticPathCache = function () {
+    var pc = this._state.pathCache;
+    var byStyle = {};
+    var geom = this._state.geometry;
+    var dragId = pc.dragId;
+
+    for (var i = 0; i < this.edges.length; i++) {
+      var e = this.edges[i];
+      var g = geom[e.id];
+      if (!g) continue;
+      // Skip edges that will be over-drawn or are dynamic during drag.
+      if (dragId && (e.source === dragId || e.target === dragId)) continue;
+
+      var st = this._styleFor(e, "base");
+      var key = styleKey(st);
+      var entry = byStyle[key];
+      if (!entry) {
+        entry = byStyle[key] = {
+          style: st,
+          staticLines: new Path2D(),
+          staticArrows: st.arrow ? new Path2D() : null,
+          dynamicLines: null,
+          dynamicArrows: null,
+        };
+      }
+      appendLine(entry.staticLines, g.points);
+      if (st.arrow) appendArrow(entry.staticArrows, g.points, st.width);
+    }
+    pc.byStyle = byStyle;
+    pc.staticValid = true;
+  };
+
+  Graph.prototype._buildDynamicPathCache = function () {
+    var pc = this._state.pathCache;
+    var dragId = pc.dragId;
+    if (!dragId || !pc.byStyle) return;
+
+    // Reset dynamic paths for all known style groups.
+    for (var key in pc.byStyle) {
+      pc.byStyle[key].dynamicLines = new Path2D();
+      pc.byStyle[key].dynamicArrows = pc.byStyle[key].style.arrow ? new Path2D() : null;
+    }
+    // Walk only incident edges. For deg(node) << E this is tiny.
+    var geom = this._state.geometry;
+    for (var i = 0; i < this.edges.length; i++) {
+      var e = this.edges[i];
+      if (e.source !== dragId && e.target !== dragId) continue;
+      var g = geom[e.id];
+      if (!g) continue;
+      var st = this._styleFor(e, "base");
+      var key2 = styleKey(st);
+      var entry = pc.byStyle[key2];
+      if (!entry) {
+        // New style introduced after static build — fall back to a group.
+        entry = pc.byStyle[key2] = {
+          style: st,
+          staticLines: new Path2D(),
+          staticArrows: st.arrow ? new Path2D() : null,
+          dynamicLines: new Path2D(),
+          dynamicArrows: st.arrow ? new Path2D() : null,
+        };
+      }
+      appendLine(entry.dynamicLines, g.points);
+      if (st.arrow) appendArrow(entry.dynamicArrows, g.points, st.width);
+    }
+  };
+
   Graph.prototype._draw = function () {
     var ctx = this._ctx;
     var c = this._canvas;
     var v = this._state.viewport;
     var dpr = window.devicePixelRatio || 1;
-    var rect = this.container.getBoundingClientRect();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.setTransform(v.k * dpr, 0, 0, v.k * dpr, v.x * dpr, v.y * dpr);
 
-    // Visible rect in graph coords — used to cull off-screen edges.
-    var pad = 50 / v.k; // include a small margin for arrowheads
-    var view = {
-      minX: -v.x / v.k - pad,
-      minY: -v.y / v.k - pad,
-      maxX: (rect.width - v.x) / v.k + pad,
-      maxY: (rect.height - v.y) / v.k + pad,
-    };
-    // Drop arrowheads at very low zoom — they're invisible at 1-2px anyway.
     var skipArrows = v.k < 0.35;
 
+    // Sync cache to current drag state.
+    var pc = this._state.pathCache;
+    var dragId = this._state.nodeDrag ? this._state.nodeDrag.id : null;
+    if (pc.dragId !== dragId) {
+      pc.dragId = dragId;
+      pc.staticValid = false; // partitioning changed
+    }
+    if (!pc.staticValid) this._buildStaticPathCache();
+    if (dragId) this._buildDynamicPathCache();
+
+    // Stroke each style group: static then dynamic.
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (var key in pc.byStyle) {
+      var entry = pc.byStyle[key];
+      var st = entry.style;
+      ctx.strokeStyle = st.stroke;
+      ctx.lineWidth = st.width;
+      ctx.setLineDash(st.dash || []);
+      ctx.stroke(entry.staticLines);
+      if (dragId && entry.dynamicLines) ctx.stroke(entry.dynamicLines);
+    }
+    // Arrowhead fills (skipped at low zoom).
+    if (!skipArrows) {
+      ctx.setLineDash([]);
+      for (var key2 in pc.byStyle) {
+        var entry2 = pc.byStyle[key2];
+        if (!entry2.staticArrows) continue;
+        ctx.fillStyle = entry2.style.stroke;
+        ctx.fill(entry2.staticArrows);
+        if (dragId && entry2.dynamicArrows) ctx.fill(entry2.dynamicArrows);
+      }
+    }
+
+    // Overdraw: neighbors of selected node, hovered edge, selected edge.
+    // The base pass already painted these in their normal style; we just
+    // stroke over them with the highlight style.
     var geom = this._state.geometry;
-    var neighbors = this._neighborEdgeSet();
     var hoverId = this._state.hoveredEdge, selId = this._state.selectedEdge;
-    var ids = Object.keys(geom);
+    var neighbors = this._neighborEdgeSet();
 
-    // Base pass: group by style and stroke each group in a single path.
-    // For graphs with many uniformly-styled edges (a common case) this
-    // turns N stroke() calls into a handful, which is the difference
-    // between 20fps and 60fps under load.
-    var groups = {};
-    var arrowList = []; // [{geom, style}] — arrowheads drawn in a second pass
-    for (var i = 0; i < ids.length; i++) {
-      var g = geom[ids[i]];
-      if (g.id === hoverId || g.id === selId) continue;
-      if (neighbors && neighbors[g.id]) continue;
-      if (!intersectsView(g.bbox, view)) continue;
-      var st = this._styleFor(g.edge, "base");
-      var key = st.stroke + "|" + st.width + "|" + (st.dash ? st.dash.join(",") : "-");
-      var grp = groups[key];
-      if (!grp) { grp = groups[key] = { style: st, geoms: [] }; }
-      grp.geoms.push(g);
-      if (st.arrow && !skipArrows) arrowList.push({ g: g, st: st });
-    }
-    for (var kgrp in groups) strokeGroup(ctx, groups[kgrp]);
-    for (var ai = 0; ai < arrowList.length; ai++) {
-      var ag = arrowList[ai].g, as = arrowList[ai].st;
-      drawArrow(ctx, ag.points[ag.points.length - 2], ag.points[ag.points.length - 1], as);
-    }
-
-    // Neighbor / hover / selected: few edges, draw one-by-one so each
-    // stands out and z-orders correctly.
     if (neighbors) {
       for (var k in neighbors) {
         var ng = geom[k];
         if (!ng || ng.id === hoverId || ng.id === selId) continue;
-        if (!intersectsView(ng.bbox, view)) continue;
         strokeEdge(ctx, ng, this._styleFor(ng.edge, "neighbor"), skipArrows);
       }
     }
     if (hoverId && geom[hoverId]) strokeEdge(ctx, geom[hoverId], this._styleFor(geom[hoverId].edge, "hover"), false);
     if (selId && geom[selId]) strokeEdge(ctx, geom[selId], this._styleFor(geom[selId].edge, "selected"), false);
   };
-
-  function strokeGroup(ctx, group) {
-    var st = group.style;
-    var gs = group.geoms;
-    ctx.beginPath();
-    for (var i = 0; i < gs.length; i++) {
-      var pts = gs[i].points;
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for (var j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
-    }
-    ctx.strokeStyle = st.stroke;
-    ctx.lineWidth = st.width;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.setLineDash(st.dash || []);
-    ctx.stroke();
-  }
 
   Graph.prototype._neighborEdgeSet = function () {
     var sel = this._state.selectedNode;
@@ -830,11 +953,24 @@
     this._refreshToolbar();
     this.fitView();
   };
-  Graph.prototype.setNodes = function (nodes) { this.nodes = (nodes || []).slice(); this._relayout(); this._renderNodes(); this._scheduleDraw(); };
-  Graph.prototype.setEdges = function (edges) { this.edges = (edges || []).slice(); this._relayout(); this._renderNodes(); this._scheduleDraw(); };
+  Graph.prototype._clearDomCache = function () {
+    for (var id in this._domNodes) this._domNodes[id].remove();
+    this._domNodes = {};
+  };
+  Graph.prototype.setNodes = function (nodes) {
+    this.nodes = (nodes || []).slice();
+    this._clearDomCache();
+    this._relayout(); this._renderNodes(); this._scheduleDraw();
+  };
+  Graph.prototype.setEdges = function (edges) {
+    this.edges = (edges || []).slice();
+    // Edges-only change: keep node DOM, but invalidate path cache (geom changes).
+    this._relayout(); this._renderNodes(); this._scheduleDraw();
+  };
   Graph.prototype.setData = function (nodes, edges) {
     this.nodes = (nodes || []).slice();
     this.edges = (edges || []).slice();
+    this._clearDomCache();
     this._relayout(); this._renderNodes(); this._scheduleDraw();
   };
   Graph.prototype.addNode = function (n) { this.nodes.push(n); this._relayout(); this._renderNodes(); this._scheduleDraw(); };
@@ -855,6 +991,9 @@
         break;
       }
     }
+    // Force the user's renderNode to run again for this node — DOM diff
+    // reuses elements by id otherwise.
+    this._invalidateNodeDom(id);
     this._relayout(); this._renderNodes(); this._scheduleDraw();
   };
   Graph.prototype.selectNode = function (id) {
@@ -931,6 +1070,8 @@
     if (this._ro) this._ro.disconnect();
     this.container.innerHTML = "";
     this.container.classList.remove("gv");
+    this._domNodes = {};
+    this._state.pathCache = { byStyle: null, dragId: null, staticValid: false };
   };
 
   return Graph;
