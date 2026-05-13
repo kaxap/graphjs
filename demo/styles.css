@@ -1,0 +1,34 @@
+/* Demo page chrome only — the graph itself is styled by lib/lineage-graph.css */
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+}
+
+.topbar {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+}
+.topbar__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.topbar__logo { color: #2563eb; font-size: 16px; }
+.topbar__crumbs { color: #64748b; font-size: 12px; }
+
+.graph-host {
+  height: calc(100% - 48px);
+  width: 100%;
+}

@@ -1,0 +1,403 @@
+/**
+ * LineageGraph styles.
+ *
+ * All colors are exposed as CSS variables so consumers can theme the
+ * component by overriding them on `.lg-root` or any ancestor.
+ */
+
+.lg-root {
+  --lg-bg: #f8fafc;
+  --lg-grid: #e2e8f0;
+  --lg-surface: #ffffff;
+  --lg-border: #e2e8f0;
+  --lg-border-strong: #cbd5e1;
+  --lg-text: #0f172a;
+  --lg-text-muted: #64748b;
+  --lg-accent: #2563eb;
+  --lg-accent-soft: #dbeafe;
+  --lg-danger: #dc2626;
+  --lg-warn: #d97706;
+  --lg-success: #059669;
+  --lg-purple: #7c3aed;
+  --lg-shadow: 0 1px 2px rgba(15, 23, 42, 0.06),
+    0 4px 12px rgba(15, 23, 42, 0.06);
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  background: var(--lg-bg);
+  color: var(--lg-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+/* ---------- React Flow overrides ----------
+ *
+ * Stacking order (front to back) inside .lg-root:
+ *   7. .lg-controls / .lg-edge-overlay     ← toolbar + selected-edge buttons
+ *   5. .react-flow__node (!important)      ← node cards
+ *   4. .lg-canvas-edges                    ← canvas-drawn edges
+ *   1. .react-flow__pane                   ← pan/zoom interaction surface
+ *   0. .react-flow__background             ← grid
+ *
+ * The canvas has `pointer-events: none` so pane events still flow through.
+ * The `!important` on nodes overrides React Flow's per-node inline z-index.
+ */
+
+.lg-root .react-flow__pane {
+  z-index: 1;
+}
+.lg-root .react-flow__node {
+  z-index: 5 !important;
+  /* Let our card shape its own border-radius / shadow. */
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+.lg-root .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+  border: none;
+  opacity: 0;
+}
+.lg-root .react-flow__handle:hover,
+.lg-root .react-flow__node:hover .react-flow__handle {
+  opacity: 1;
+  background: var(--lg-accent);
+}
+
+/* ---------- Canvas edge layer ---------- */
+
+.lg-canvas-edges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Above pane/background, below the node layer. */
+  z-index: 4;
+}
+.lg-canvas-edges__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ---------- Edge interaction overlay ---------- */
+
+.lg-edge-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+.lg-edge-overlay__btn {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  border-radius: 50%;
+  border: 1px solid var(--lg-border-strong);
+  background: var(--lg-surface);
+  color: var(--lg-text);
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: var(--lg-shadow);
+}
+.lg-edge-overlay__btn:hover {
+  border-color: var(--lg-accent);
+  color: var(--lg-accent);
+}
+.lg-edge-overlay__btn--remove:hover {
+  border-color: var(--lg-danger);
+  color: var(--lg-danger);
+}
+
+/* ---------- Node card ---------- */
+
+.lg-node {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--lg-surface);
+  border: 1px solid var(--lg-border);
+  border-radius: 10px;
+  box-shadow: var(--lg-shadow);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    opacity 120ms ease;
+  outline: none;
+}
+.lg-node:hover {
+  border-color: var(--lg-border-strong);
+}
+.lg-node:focus-visible {
+  border-color: var(--lg-accent);
+  box-shadow: 0 0 0 3px var(--lg-accent-soft);
+}
+.lg-node--selected {
+  border-color: var(--lg-accent);
+  box-shadow: 0 0 0 2px var(--lg-accent-soft), var(--lg-shadow);
+}
+.lg-node--highlighted {
+  border-color: var(--lg-accent);
+}
+.lg-node--dimmed {
+  opacity: 0.35;
+}
+.lg-node--deleted,
+.lg-node--deprecated {
+  background: #f1f5f9;
+  color: var(--lg-text-muted);
+}
+.lg-node--deleted .lg-node__title {
+  text-decoration: line-through;
+}
+
+.lg-node__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.lg-node__icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 6px;
+  background: var(--lg-accent-soft);
+  color: var(--lg-accent);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lg-node--table .lg-node__icon { background: #dbeafe; color: #1d4ed8; }
+.lg-node--dashboard .lg-node__icon { background: #fef3c7; color: #b45309; }
+.lg-node--pipeline .lg-node__icon { background: #dcfce7; color: #047857; }
+.lg-node--topic .lg-node__icon { background: #fee2e2; color: #b91c1c; }
+.lg-node--mlmodel .lg-node__icon { background: #ede9fe; color: #6d28d9; }
+.lg-node--container .lg-node__icon { background: #e0f2fe; color: #0369a1; }
+.lg-node--database .lg-node__icon { background: #f1f5f9; color: #334155; }
+.lg-node--schema .lg-node__icon { background: #f3e8ff; color: #7c3aed; }
+
+.lg-node__body {
+  min-width: 0;
+  flex: 1;
+}
+.lg-node__title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--lg-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lg-node__subtitle {
+  font-size: 11px;
+  color: var(--lg-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lg-node__badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.lg-badge {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: var(--lg-text-muted);
+  border: 1px solid var(--lg-border);
+  white-space: nowrap;
+}
+.lg-badge--tier { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.lg-badge--domain { background: #ede9fe; color: #5b21b6; border-color: #ddd6fe; }
+.lg-badge--owner { background: #e0f2fe; color: #075985; border-color: #bae6fd; }
+.lg-badge--deleted { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+.lg-badge--deprecated { background: #ffedd5; color: #9a3412; border-color: #fed7aa; }
+
+/* Expand handles — small + buttons that stick out the side of the node. */
+.lg-node__expand {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--lg-border-strong);
+  background: var(--lg-surface);
+  color: var(--lg-text-muted);
+  font-size: 13px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  z-index: 3;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.lg-node__expand:hover {
+  color: var(--lg-accent);
+  border-color: var(--lg-accent);
+}
+/* LR: upstream on the left side, downstream on the right side. */
+.lg-node__expand--LR.lg-node__expand--upstream {
+  left: -9px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.lg-node__expand--LR.lg-node__expand--downstream {
+  right: -9px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+/* TB: upstream on top, downstream on bottom. */
+.lg-node__expand--TB.lg-node__expand--upstream {
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.lg-node__expand--TB.lg-node__expand--downstream {
+  bottom: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* ---------- Toolbar ---------- */
+
+.lg-controls {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  gap: 8px;
+  z-index: 7;
+}
+.lg-controls__group {
+  display: inline-flex;
+  background: var(--lg-surface);
+  border: 1px solid var(--lg-border);
+  border-radius: 8px;
+  box-shadow: var(--lg-shadow);
+  overflow: hidden;
+}
+.lg-controls__btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--lg-text);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 10px;
+  cursor: pointer;
+  min-width: 32px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.lg-controls__btn + .lg-controls__btn {
+  border-left: 1px solid var(--lg-border);
+}
+.lg-controls__btn:hover {
+  background: #f1f5f9;
+}
+.lg-controls__btn.is-active {
+  background: var(--lg-accent-soft);
+  color: var(--lg-accent);
+}
+
+/* ---------- Minimap ---------- */
+
+.lg-root .lg-minimap {
+  border: 1px solid var(--lg-border);
+  border-radius: 8px;
+  background: var(--lg-surface);
+  box-shadow: var(--lg-shadow);
+}
+
+/* ---------- React Flow native edge fallback ---------- */
+
+.lg-rf-edge .react-flow__edge-path {
+  stroke: #94a3b8;
+  stroke-width: 1.5;
+}
+.lg-rf-edge--columnLineage .react-flow__edge-path {
+  stroke: #a78bfa;
+  stroke-dasharray: 3 3;
+}
+.lg-rf-edge--deleted .react-flow__edge-path {
+  stroke: #cbd5e1;
+  stroke-dasharray: 4 4;
+}
+.lg-rf-edge--inactive .react-flow__edge-path {
+  stroke: #cbd5e1;
+}
+.lg-rf-edge--accent .react-flow__edge-path {
+  stroke: #3b82f6;
+  stroke-width: 2;
+}
+.lg-rf-edge--hover .react-flow__edge-path {
+  stroke: #3b82f6;
+  stroke-width: 2.25;
+}
+.lg-rf-edge--selected .react-flow__edge-path {
+  stroke: #2563eb;
+  stroke-width: 2.5;
+}
+
+/* ---------- Empty / loading / error states ---------- */
+
+.lg-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  text-align: center;
+}
+.lg-state__text {
+  font-weight: 600;
+  font-size: 14px;
+}
+.lg-state__detail {
+  color: var(--lg-text-muted);
+  font-size: 12px;
+  max-width: 420px;
+}
+.lg-state--error .lg-state__text {
+  color: var(--lg-danger);
+}
+.lg-state__spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--lg-border);
+  border-top-color: var(--lg-accent);
+  border-radius: 50%;
+  animation: lg-spin 0.9s linear infinite;
+}
+@keyframes lg-spin {
+  to { transform: rotate(360deg); }
+}

@@ -1,0 +1,228 @@
+/*!
+ * lineage-graph.css — styles for lineage-graph.js
+ *
+ * All rules are scoped under `.lg` (the container class) so this file
+ * can drop into any page without leaking. Theme by overriding the CSS
+ * variables on `.lg` (or any ancestor).
+ */
+
+.lg {
+  --lg-bg: #f8fafc;
+  --lg-grid: #e2e8f0;
+  --lg-surface: #ffffff;
+  --lg-border: #e2e8f0;
+  --lg-border-strong: #cbd5e1;
+  --lg-text: #0f172a;
+  --lg-muted: #64748b;
+  --lg-accent: #2563eb;
+  --lg-accent-soft: #dbeafe;
+  --lg-shadow: 0 1px 2px rgba(15, 23, 42, 0.06),
+    0 4px 12px rgba(15, 23, 42, 0.06);
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  background-color: var(--lg-bg);
+  background-image: radial-gradient(var(--lg-grid) 1px, transparent 1px);
+  background-size: 20px 20px;
+  color: var(--lg-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+  cursor: grab;
+}
+.lg:active { cursor: grabbing; }
+
+.lg__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+.lg__nodes {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* ---------- Node card ---------- */
+
+.lg-node {
+  position: absolute;
+  pointer-events: auto;
+  background: var(--lg-surface);
+  border: 1px solid var(--lg-border);
+  border-radius: 10px;
+  box-shadow: var(--lg-shadow);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
+  outline: none;
+  cursor: grab;
+  transition: border-color 120ms, box-shadow 120ms, opacity 120ms;
+}
+.lg-node * { user-select: none; -webkit-user-select: none; }
+.lg-node:active { cursor: grabbing; }
+.lg-node:hover { border-color: var(--lg-border-strong); }
+.lg-node:focus-visible {
+  border-color: var(--lg-accent);
+  box-shadow: 0 0 0 3px var(--lg-accent-soft);
+}
+.lg-node.is-selected {
+  border-color: var(--lg-accent);
+  box-shadow: 0 0 0 2px var(--lg-accent-soft), var(--lg-shadow);
+}
+.lg-node.is-deleted, .lg-node.is-deprecated {
+  background: #f1f5f9;
+  color: var(--lg-muted);
+}
+.lg-node.is-deleted .lg-node__title { text-decoration: line-through; }
+
+.lg-node__row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lg-node__icon {
+  width: 28px; height: 28px; flex: 0 0 28px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+.lg-node--table .lg-node__icon     { background: #dbeafe; color: #1d4ed8; }
+.lg-node--pipeline .lg-node__icon  { background: #dcfce7; color: #047857; }
+.lg-node--topic .lg-node__icon     { background: #fee2e2; color: #b91c1c; }
+.lg-node--dashboard .lg-node__icon { background: #fef3c7; color: #b45309; }
+.lg-node--mlmodel .lg-node__icon   { background: #ede9fe; color: #6d28d9; }
+.lg-node--database .lg-node__icon  { background: #f1f5f9; color: #334155; }
+.lg-node--schema .lg-node__icon    { background: #f3e8ff; color: #7c3aed; }
+.lg-node--container .lg-node__icon { background: #e0f2fe; color: #0369a1; }
+.lg-node--generic .lg-node__icon   { background: #f1f5f9; color: #334155; }
+
+.lg-node__body { min-width: 0; flex: 1; }
+.lg-node__title {
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lg-node__subtitle {
+  font-size: 11px;
+  color: var(--lg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lg-node__badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.lg-badge {
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: var(--lg-muted);
+  border: 1px solid var(--lg-border);
+  white-space: nowrap;
+}
+.lg-badge--tier     { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.lg-badge--domain   { background: #ede9fe; color: #5b21b6; border-color: #ddd6fe; }
+.lg-badge--owner    { background: #e0f2fe; color: #075985; border-color: #bae6fd; }
+.lg-badge--deleted  { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+.lg-badge--deprecated { background: #ffedd5; color: #9a3412; border-color: #fed7aa; }
+
+.lg-node__expand {
+  position: absolute;
+  width: 18px; height: 18px;
+  top: 50%;
+  border-radius: 50%;
+  border: 1px solid var(--lg-border-strong);
+  background: var(--lg-surface);
+  color: var(--lg-muted);
+  font-size: 13px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transform: translateY(-50%);
+  padding: 0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.lg-node__expand--up   { left: -9px; }
+.lg-node__expand--down { right: -9px; }
+.lg-node__expand:hover { color: var(--lg-accent); border-color: var(--lg-accent); }
+
+/* ---------- Toolbar ---------- */
+
+.lg-controls {
+  position: absolute;
+  top: 12px; left: 12px;
+  display: flex; gap: 8px;
+  z-index: 5;
+}
+.lg-controls__group {
+  display: inline-flex;
+  background: var(--lg-surface);
+  border: 1px solid var(--lg-border);
+  border-radius: 8px;
+  box-shadow: var(--lg-shadow);
+  overflow: hidden;
+}
+.lg-controls__group button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--lg-text);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 10px;
+  cursor: pointer;
+  min-width: 32px;
+  height: 30px;
+}
+.lg-controls__group button + button { border-left: 1px solid var(--lg-border); }
+.lg-controls__group button:hover { background: #f1f5f9; }
+.lg-controls__group button.is-active {
+  background: var(--lg-accent-soft);
+  color: var(--lg-accent);
+}
+
+/* ---------- Legend ---------- */
+
+.lg-legend {
+  position: absolute;
+  bottom: 12px; left: 12px;
+  background: var(--lg-surface);
+  border: 1px solid var(--lg-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--lg-muted);
+  display: flex;
+  gap: 14px;
+  box-shadow: var(--lg-shadow);
+  z-index: 5;
+}
+.lg-legend__dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.lg-legend__dot--table     { background: #1d4ed8; }
+.lg-legend__dot--pipeline  { background: #047857; }
+.lg-legend__dot--topic     { background: #b91c1c; }
+.lg-legend__dot--dashboard { background: #b45309; }
+.lg-legend__dot--mlmodel   { background: #6d28d9; }
+.lg-legend__dot--database  { background: #334155; }
+.lg-legend__dot--schema    { background: #7c3aed; }
+.lg-legend__dot--container { background: #0369a1; }
+.lg-legend__dot--generic   { background: #94a3b8; }
