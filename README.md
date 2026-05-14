@@ -273,7 +273,71 @@ distinct.
 > graph and are not a substitute for primary reporting. It's a
 > visualization exercise, not analysis.
 
-### 4. Stress test — `demo/large.html`
+### 4. Map of Evolution — `demo/evolution.html`
+
+A curated, interactive tree of life from LUCA to Homo sapiens — inspired
+by Kurzgesagt's
+[*Map of Evolution*](https://shop-eu.kurzgesagt.org/products/poster-map-of-evolution)
+poster. 73 clades + 10 evolutionary milestone events, all in a single
+LR-laid-out DAG.
+
+![Map of Evolution — overview centered on early life](demo/screenshots/chromium/evolution-04-root.png)
+
+The structure that falls out for free: LUCA branches into the three
+domains (Bacteria, Archaea, Eukarya), each domain branches further into
+kingdoms, kingdoms into phyla, and so on down to species-level
+distinctions for great apes. Edges are **colored by the descendant's
+kingdom** so each lineage paints its own visual stream as the tree fans
+out — bacteria stay blue, plants green, animals red, vertebrates
+orange, mammals pink, primates purple, *Homo* gold.
+
+**Evolutionary milestone events** are attached to the clade where they
+happened (Photosynthesis → Cyanobacteria, Cambrian Explosion → Bilateria,
+K–Pg extinction → Placentalia, …) and rendered as **dashed-edge pills**
+visually distinct from the main tree:
+
+![Cambrian Explosion milestone selected](demo/screenshots/chromium/evolution-05-milestone.png)
+
+Toolbar adds two custom buttons:
+- **→ Homo** — recenters the viewport on humans and selects the node, so
+  the library's neighbor-highlighting lights up the immediate
+  ancestor + sibling great-ape lineages.
+- **✦ Milestones** — selects the first milestone (Photosynthesis) as a
+  starting point for browsing the major events along the tree.
+
+![Zoomed on Homo — sibling great apes + the Behavioral modernity milestone](demo/screenshots/chromium/evolution-03-homo-zoom.png)
+
+Clicking any clade in the info panel surfaces three useful relationships
+the underlying tree already encodes:
+
+- **Ancestors** (closest first) — the lineage walk back toward LUCA
+- **Sibling lineages** — other branches that share the same parent
+- **Descendant branches** — what diversified from this clade
+
+For Homo this reads as: ancestors *Great apes → Apes → Catarrhini →
+Simiiformes → Haplorhini → Primates …*; siblings *Pan, Gorilla, Pongo*;
+descendants — just one, *Behavioral modernity*. Click *Pan* and you
+get a different walk through the same tree.
+
+The demo also uses a **dark theme**, set by overriding the `--gv-*` CSS
+variables on `.gv` — the same library as the other demos, just retinted:
+
+```css
+.gv {
+  --gv-bg:       #0b1220;
+  --gv-grid:     #1e293b;
+  --gv-surface:  #111c33;
+  --gv-text:     #e2e8f0;
+  --gv-accent:   #38bdf8;
+  /* ... */
+}
+```
+
+The tree is deep — the path from LUCA to *Homo sapiens* is 22 ranks —
+so the default `fitView()` zooms out far. Use the **→ Homo** button,
+or scroll-wheel zoom, to drill in.
+
+### 5. Stress test — `demo/large.html`
 
 The same library, now with **1000 nodes and 3000 edges** in a 10-layer
 DAG, generated procedurally:
@@ -641,6 +705,8 @@ demo/                 Runnable demos. Library files are copied here
   tribes.js             Data + bipartite renderNode/edgeStyle.
   iran-war.html         Conflict-graph demo: June 2025 Israel-Iran-US.
   iran-war.js           Static-positioned cyclic graph + category filters.
+  evolution.html        Tree of life demo (dark theme).
+  evolution.js          Curated tree-of-life data + milestone events.
   large.html            1000-node stress demo.
   large.js              Procedural graph generator.
   graph.js, graph.css   Copies of lib/. Refresh with `cp lib/graph.* demo/`.
