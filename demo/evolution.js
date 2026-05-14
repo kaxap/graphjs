@@ -296,6 +296,14 @@
     },
     pressed: function (g) { var n = g.getLayoutName(); return n === "fr" || n === "fruchterman-reingold" || n === "fruchtermanReingold"; },
   });
+  graph.addToolbarButton({
+    id: "lay-yh", label: "YH",
+    title: "Yifan Hu — adaptive force-directed",
+    onClick: function (g) {
+      g.setLayout({ name: "yh", iterations: 400, seed: 3, gravity: 0.25, K: 200 });
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "yh" || n === "yifan-hu" || n === "yifanHu"; },
+  });
 
   // ----- Info pane on click --------------------------------------------
 

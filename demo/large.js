@@ -153,6 +153,16 @@
     },
     pressed: function (g) { var n = g.getLayoutName(); return n === "fr" || n === "fruchterman-reingold" || n === "fruchtermanReingold"; },
   });
+  graph.addToolbarButton({
+    id: "lay-yh", label: "YH",
+    title: "Yifan Hu — adaptive step size; better convergence at high N",
+    onClick: function (g) {
+      var t0 = performance.now();
+      g.setLayout({ name: "yh", iterations: 80, seed: 1, gravity: 0.2, K: 400 });
+      console.log("YH layout (1000 nodes / 3000 edges):", (performance.now() - t0).toFixed(0), "ms");
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "yh" || n === "yifan-hu" || n === "yifanHu"; },
+  });
 
   // --- FPS meter (idle when nothing is moving) ------------------------------
   var fpsEl = document.getElementById("stat-fps");

@@ -252,6 +252,19 @@
     },
     pressed: function (g) { var n = g.getLayoutName(); return n === "fr" || n === "fruchterman-reingold" || n === "fruchtermanReingold"; },
   });
+  graph.addToolbarButton({
+    id: "lay-yh", label: "YH",
+    title: "Yifan Hu — adaptive force-directed",
+    onClick: function (g) {
+      g.setNodes(nodesWithoutPositions());
+      // YH equilibrium edge length ≈ 0.585·K with no gravity, tighter
+      // with gravity. Iran has many dense connections (Iran ↔ its
+      // proxies, Israel ↔ US, etc.) so we want a generous K to keep
+      // those clusters from crowding the 190-px-wide actor cards.
+      g.setLayout({ name: "yh", iterations: 400, seed: 9, gravity: 0.05, K: 650 });
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "yh" || n === "yifan-hu" || n === "yifanHu"; },
+  });
 
   // ----- Info pane -------------------------------------------------------
 

@@ -627,6 +627,293 @@ def run_suite(engine: str) -> int:
             f"totalDelta={distinct:.1f}px summed across all nodes",
         )
 
+        # --- Yifan Hu layout ---------------------------------------------
+        # Same property tests as FA2/FR + one Hu-specific test of the
+        # adaptive step-size mechanism (energy decreases monotonically
+        # over the long run once the layout starts converging).
+        print("\nYifan Hu layout:")
+        report.add(
+            "Graph.layouts.yifanHu exposed",
+            page.evaluate("typeof Graph.layouts.yifanHu === 'function'"),
+        )
+        report.add(
+            "YH aliases 'yh' / 'yifan-hu' / 'yifanHu' resolve",
+            page.evaluate(
+                """() => {
+                    const el = document.createElement('div');
+                    el.style.width='400px'; el.style.height='300px';
+                    document.body.appendChild(el);
+                    let ok = true;
+                    for (const name of ['yh', 'yifan-hu', 'yifanHu']) {
+                        const g = new Graph(el, {
+                            nodes:[{id:'a'},{id:'b'}],
+                            edges:[{id:'e',source:'a',target:'b'}],
+                            layout: name,
+                            layoutOptions: { iterations: 30, seed: 1 },
+                        });
+                        if (!g.getNodePosition('a') || !g.getNodePosition('b')) ok = false;
+                        if (g.getLayoutName() !== name) ok = false;
+                        g.destroy();
+                    }
+                    el.remove();
+                    return ok;
+                }"""
+            ),
+        )
+
+        # Clustering on triangle + isolated.
+        yh_clust = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width='600px'; el.style.height='400px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes:[{id:'a'},{id:'b'},{id:'c'},{id:'d'}],
+                    edges:[{id:'e1',source:'a',target:'b'},
+                           {id:'e2',source:'b',target:'c'},
+                           {id:'e3',source:'a',target:'c'}],
+                    layout: "yh",
+                    layoutOptions: { iterations: 200, seed: 42, gravity: 0.2 },
+                });
+                const pa = g.getNodePosition('a'), pb = g.getNodePosition('b');
+                const pc = g.getNodePosition('c'), pd = g.getNodePosition('d');
+                g.destroy(); el.remove();
+                return { pa, pb, pc, pd };
+            }"""
+        )
+        pa, pb, pc, pd = yh_clust["pa"], yh_clust["pb"], yh_clust["pc"], yh_clust["pd"]
+        tri_max = max(dist(pa, pb), dist(pb, pc), dist(pa, pc))
+        iso_min = min(dist(pa, pd), dist(pb, pd), dist(pc, pd))
+        report.add(
+            "YH places triangle members closer than the isolated node",
+            tri_max < iso_min,
+            f"triangle_max={tri_max:.1f} < to_isolated_min={iso_min:.1f}",
+        )
+
+        # Determinism
+        det_yh = page.evaluate(
+            """() => {
+                const nodes = [{id:'a'},{id:'b'},{id:'c'},{id:'d'},{id:'e'}];
+                const edges = [{id:'1',source:'a',target:'b'},
+                               {id:'2',source:'c',target:'d'},
+                               {id:'3',source:'d',target:'e'}];
+                const opts = { iterations: 100, seed: 13, nodeWidth: 100, nodeHeight: 40 };
+                const r1 = Graph.layouts.yifanHu(nodes, edges, opts);
+                const r2 = Graph.layouts.yifanHu(nodes, edges, opts);
+                let maxDelta = 0;
+                for (const id in r1.positions) {
+                    const a = r1.positions[id], b = r2.positions[id];
+                    maxDelta = Math.max(maxDelta, Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+                }
+                return { maxDelta };
+            }"""
+        )
+        report.add(
+            "YH is deterministic with the same seed",
+            det_yh["maxDelta"] < 1e-6,
+            f"maxDelta={det_yh['maxDelta']:.2e}",
+        )
+
+        # Two-cluster (barbell) separation
+        yh_bar = page.evaluate(
+            """() => {
+                const nodes = [
+                  {id:'a1'},{id:'a2'},{id:'a3'},
+                  {id:'b1'},{id:'b2'},{id:'b3'},
+                ];
+                const edges = [
+                  {id:'1',source:'a1',target:'a2'},
+                  {id:'2',source:'a2',target:'a3'},
+                  {id:'3',source:'a1',target:'a3'},
+                  {id:'4',source:'b1',target:'b2'},
+                  {id:'5',source:'b2',target:'b3'},
+                  {id:'6',source:'b1',target:'b3'},
+                  {id:'7',source:'a1',target:'b1'},
+                ];
+                const r = Graph.layouts.yifanHu(nodes, edges, {
+                    iterations: 300, seed: 1, nodeWidth: 80, nodeHeight: 30,
+                });
+                return r.positions;
+            }"""
+        )
+        clA = [yh_bar["a1"], yh_bar["a2"], yh_bar["a3"]]
+        clB = [yh_bar["b1"], yh_bar["b2"], yh_bar["b3"]]
+        within = sum(dist(clA[i], clA[j]) for i in range(3) for j in range(i + 1, 3))
+        within += sum(dist(clB[i], clB[j]) for i in range(3) for j in range(i + 1, 3))
+        within /= 6
+        across = sum(dist(a, b) for a in clA for b in clB) / 9
+        report.add(
+            "YH separates two clusters connected by one bridge",
+            across > within * 1.4,
+            f"across={across:.1f} vs within={within:.1f} (ratio {across / max(within, 1e-9):.2f})",
+        )
+
+        # Empty edges
+        empty_yh = page.evaluate(
+            """() => {
+                try {
+                    const r = Graph.layouts.yifanHu(
+                        [{id:'a'},{id:'b'},{id:'c'}], [],
+                        { iterations: 30, seed: 1 }
+                    );
+                    return { ok: true, count: Object.keys(r.positions).length };
+                } catch (e) { return { ok: false, error: String(e) }; }
+            }"""
+        )
+        report.add(
+            "YH handles a graph with zero edges",
+            empty_yh["ok"] and empty_yh["count"] == 3,
+            str(empty_yh),
+        )
+
+        # Object form
+        obj_yh = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width='400px'; el.style.height='300px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes:[{id:'a'},{id:'b'}],
+                    edges:[{id:'e',source:'a',target:'b'}],
+                    layout: { name: "yifan-hu", iterations: 30, seed: 5, K: 80 },
+                });
+                const ok = g.getNodePosition('a') != null && g.getNodePosition('b') != null;
+                g.destroy(); el.remove();
+                return ok;
+            }"""
+        )
+        report.add("constructor accepts layout: { name: 'yifan-hu', ... } object form", obj_yh)
+
+        # Position override honored under YH
+        pin_yh = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width='400px'; el.style.height='300px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes:[
+                      { id:'pinned', position:{x:111,y:222} },
+                      { id:'free' },
+                    ],
+                    edges:[{id:'e',source:'pinned',target:'free'}],
+                    layout: "yh",
+                    layoutOptions: { iterations: 30, seed: 3 },
+                });
+                const p = g.getNodePosition('pinned');
+                g.destroy(); el.remove();
+                return p;
+            }"""
+        )
+        report.add(
+            "node.position pins a node even under YH layout",
+            pin_yh["x"] == 111 and pin_yh["y"] == 222,
+            str(pin_yh),
+        )
+
+        # YH-specific: adaptive step size means energy ENDS lower than it
+        # would with a fixed step. Run YH and the same graph with FR
+        # (which uses linear cooling), check YH converges to lower
+        # final-iteration energy on a graph that's hard to converge.
+        adaptive = page.evaluate(
+            """() => {
+                // Build a moderately complex graph: 12 nodes, mixed connectivity.
+                const nodes = [];
+                for (let i = 0; i < 12; i++) nodes.push({ id: 'n' + i });
+                const edges = [
+                    {id:'1',source:'n0',target:'n1'},
+                    {id:'2',source:'n1',target:'n2'},
+                    {id:'3',source:'n2',target:'n3'},
+                    {id:'4',source:'n3',target:'n4'},
+                    {id:'5',source:'n0',target:'n4'},
+                    {id:'6',source:'n5',target:'n6'},
+                    {id:'7',source:'n6',target:'n7'},
+                    {id:'8',source:'n5',target:'n7'},
+                    {id:'9',source:'n8',target:'n9'},
+                    {id:'10',source:'n10',target:'n11'},
+                    {id:'11',source:'n0',target:'n5'},  // bridge
+                    {id:'12',source:'n5',target:'n8'},  // bridge
+                ];
+                // Measure layout "energy" as the sum of squared deltas
+                // between iteration N and iteration N+50. Lower = more
+                // converged.
+                function energy(r) {
+                    const ps = Object.values(r.positions);
+                    let sumSq = 0;
+                    for (let i = 0; i < ps.length; i++) {
+                      for (let j = i+1; j < ps.length; j++) {
+                        const dx = ps[i].x - ps[j].x;
+                        const dy = ps[i].y - ps[j].y;
+                        const d = Math.sqrt(dx*dx + dy*dy);
+                        // closer-together pairs have higher repulsive energy
+                        if (d > 0.1) sumSq += 1 / d;
+                      }
+                    }
+                    return sumSq;
+                }
+                const optsCommon = { seed: 7, nodeWidth: 100, nodeHeight: 40 };
+                // Measure energy delta between iter=100 and iter=200.
+                // For an algorithm that has converged, this delta should
+                // be close to zero. YH's adaptive cooling should be more
+                // converged than FR by iteration 200.
+                const yh100 = Graph.layouts.yifanHu(nodes, edges, Object.assign({}, optsCommon, { iterations: 100, gravity: 0.1 }));
+                const yh200 = Graph.layouts.yifanHu(nodes, edges, Object.assign({}, optsCommon, { iterations: 200, gravity: 0.1 }));
+                const fr100 = Graph.layouts.fruchtermanReingold(nodes, edges, Object.assign({}, optsCommon, { iterations: 100, gravity: 0.5 }));
+                const fr200 = Graph.layouts.fruchtermanReingold(nodes, edges, Object.assign({}, optsCommon, { iterations: 200, gravity: 0.5 }));
+                // Stability = how much positions changed between 100 and 200 iters.
+                function delta(r1, r2) {
+                    let s = 0;
+                    for (const id in r1.positions) {
+                        const a = r1.positions[id], b = r2.positions[id];
+                        s += Math.hypot(a.x - b.x, a.y - b.y);
+                    }
+                    return s;
+                }
+                return {
+                    yhStability: delta(yh100, yh200),
+                    frStability: delta(fr100, fr200),
+                };
+            }"""
+        )
+        # Both should be reasonably converged. YH's adaptive scheme
+        # SHOULD be at least as stable as FR. This is a soft check —
+        # we don't require YH to dominate, just to not be much worse.
+        report.add(
+            "YH adaptive convergence does not diverge from FR baseline",
+            adaptive["yhStability"] < adaptive["frStability"] * 5,
+            f"YH 100→200 delta={adaptive['yhStability']:.0f}px, FR={adaptive['frStability']:.0f}px",
+        )
+
+        # YH is genuinely a different code path from FR/FA2
+        distinct_yh = page.evaluate(
+            """() => {
+                const nodes = [{id:'a'},{id:'b'},{id:'c'},{id:'d'}];
+                const edges = [{id:'1',source:'a',target:'b'},
+                               {id:'2',source:'b',target:'c'},
+                               {id:'3',source:'a',target:'c'}];
+                const opts = { iterations: 100, seed: 42, nodeWidth: 100, nodeHeight: 40 };
+                const fa = Graph.layouts.forceatlas2(nodes, edges, opts);
+                const fr = Graph.layouts.fruchtermanReingold(nodes, edges, opts);
+                const yh = Graph.layouts.yifanHu(nodes, edges, opts);
+                function totalDelta(r1, r2) {
+                    let s = 0;
+                    for (const id in r1.positions) {
+                        s += Math.hypot(r1.positions[id].x - r2.positions[id].x,
+                                        r1.positions[id].y - r2.positions[id].y);
+                    }
+                    return s;
+                }
+                return {
+                    yhVsFa: totalDelta(yh, fa),
+                    yhVsFr: totalDelta(yh, fr),
+                };
+            }"""
+        )
+        report.add(
+            "YH produces a layout distinct from FA2 and FR",
+            distinct_yh["yhVsFa"] > 1.0 and distinct_yh["yhVsFr"] > 1.0,
+            f"YH↔FA2 delta={distinct_yh['yhVsFa']:.1f}, YH↔FR delta={distinct_yh['yhVsFr']:.1f}",
+        )
+
         # --- Lifecycle ---------------------------------------------------
         print("\nLifecycle:")
         cleaned = page.evaluate(

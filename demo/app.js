@@ -164,6 +164,18 @@
     },
     pressed: function (g) { var n = g.getLayoutName(); return n === "fr" || n === "fruchterman-reingold" || n === "fruchtermanReingold"; },
   });
+  graph.addToolbarButton({
+    id: "lay-yh",
+    label: "YH",
+    title: "Yifan Hu force-directed layout (adaptive step size)",
+    onClick: function (g) {
+      // YH equilibrium edge length ≈ 0.585·K. Pick K so that comfortably
+      // exceeds the card width (240 px) — otherwise neighbors crowd each
+      // other on dense parts of the graph.
+      g.setLayout({ name: "yh", iterations: 300, seed: 1, gravity: 0.08, K: 500 });
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "yh" || n === "yifan-hu" || n === "yifanHu"; },
+  });
 
   // Test hooks.
   window.__demo = {
