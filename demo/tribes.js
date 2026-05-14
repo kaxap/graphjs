@@ -1,88 +1,144 @@
-// Kazakh tribes ↔ Y-DNA haplogroups bipartite graph.
+// Kazakh tribes — paternal haplogroup multigraph.
 //
-// Data source: "Y-DNA haplogroups in Kazakh tribes" (Wikipedia). Each
-// tribe's dominant paternal haplogroups (and their approximate
-// percentages from sampled studies) are encoded as edges in the graph.
+//   Tribes  = nodes
+//   Haplogroups = edges
 //
-// Layout: the library's built-in LR hierarchical layout puts tribes at
-// rank 0 and haplogroups at rank 1, producing a clean bipartite view.
+// If two tribes both carry haplogroup H (above a minimum threshold), an
+// edge of "type H" connects them. Two tribes can be linked by multiple
+// parallel edges if they share multiple haplogroups — each edge is a
+// distinct haplogroup connection, drawn in that haplogroup's color.
+// Edge weight = min(A.pct[H], B.pct[H]).
 
 (function () {
   "use strict";
 
   // ---- Source data -----------------------------------------------------
-  // Sample sizes (n) come from the cited studies summarized on the
-  // Wikipedia page. Percentages are dominant-lineage values; minor
-  // haplogroups (<2%) are not included.
-
+  //
+  // Y-haplogroup frequencies per tribe (%), values >= 2 only. Source:
+  // "Y-DNA haplogroups in Kazakh tribes" (Wikipedia) — primary table.
+  // Minor haplogroups (<2%) are omitted so they don't dominate edge
+  // counts. Sample sizes (n) come from the cited primary studies.
   var TRIBES = [
-    { id: "T_Uysun",    name: "Uysun",    zhuz: "Senior", n: 248 },
-    { id: "T_Zhalayir", name: "Zhalayir", zhuz: "Senior", n: 103 },
-    { id: "T_Qangly",   name: "Qangly",   zhuz: "Senior", n:  27 },
-    { id: "T_Argyn",    name: "Argyn",    zhuz: "Middle", n: 384 },
-    { id: "T_Kerey",    name: "Kerey",    zhuz: "Middle", n: 102 },
-    { id: "T_Konyrat",  name: "Konyrat",  zhuz: "Middle", n:  90 },
-    { id: "T_Kipchak",  name: "Kipchak",  zhuz: "Middle", n: 133 },
-    { id: "T_Naiman",   name: "Naiman",   zhuz: "Middle", n: 336 },
-    { id: "T_Uaq",      name: "Uaq",      zhuz: "Middle", n:  45 },
-    { id: "T_Alimuly",  name: "Alimuly",  zhuz: "Junior", n: 145 },
-    { id: "T_Baiuly",   name: "Baiuly",   zhuz: "Junior", n: 130 },
+    { id: "Uysun",    name: "Uysun",    zhuz: "Senior", n: 248,
+      haplo: { "C2*": 50, "C2b1a2": 11, "G1": 3,  "J1*": 12, "J2*": 8,  "N1a1a": 4,  "R1a1a*": 4 } },
+    { id: "Zhalayir", name: "Zhalayir", zhuz: "Senior", n: 103,
+      haplo: { "C2*": 38, "C2b1a2": 2,  "J2*": 3,  "N1a1a": 22, "Q*": 6, "R1a1a*": 8 } },
+    { id: "Qangly",   name: "Qangly",   zhuz: "Senior", n:  27,
+      haplo: { "C2*": 7,  "G1": 7,  "J1*": 4,  "J2*": 7,  "J2a1a": 7,  "Q*": 48, "R1a1a*": 4 } },
+    { id: "Argyn",    name: "Argyn",    zhuz: "Middle", n: 384,
+      haplo: { "C2*": 3,  "C2b1a2": 5, "G1": 67, "J1*": 2,  "J2*": 3,  "N1a1a": 2,  "Q*": 2,  "R1a1a*": 6 } },
+    { id: "Kerey",    name: "Kerey",    zhuz: "Middle", n: 102,
+      haplo: { "C2*": 66, "C2b1a2": 9, "G1": 4,  "J1*": 4,  "J2*": 2,  "Q*": 3,  "R1a1a*": 7 } },
+    { id: "Konyrat",  name: "Konyrat",  zhuz: "Middle", n:  90,
+      haplo: { "C2*": 2,  "C2c1a1a1": 86, "N1a1a": 3,  "R1a1a*": 4 } },
+    { id: "Kipchak",  name: "Kipchak",  zhuz: "Middle", n: 133,
+      haplo: { "C2*": 2,  "C2b1a2": 2, "G1": 5,  "J2*": 22, "R1a1a*": 8 } },
+    { id: "Naiman",   name: "Naiman",   zhuz: "Middle", n: 336,
+      haplo: { "C2*": 10, "C2b1a2": 27, "N1a1a": 2,  "R1a1a*": 2 } },
+    { id: "Uaq",      name: "Uaq",      zhuz: "Middle", n:  45,
+      haplo: { "C2*": 2,  "C2b1a2": 7, "C2c1a1a1": 4, "G1": 4,  "J1*": 4,  "N1a1a": 64, "R1a1a*": 2 } },
+    { id: "Alimuly",  name: "Alimuly",  zhuz: "Junior", n: 145,
+      haplo: { "C2*": 2,  "C2b1a2": 77, "Q*": 6,  "R1a1a*": 3 } },
+    { id: "Baiuly",   name: "Baiuly",   zhuz: "Junior", n: 130,
+      haplo: { "C2*": 13, "C2b1a2": 69, "J1*": 2,  "J2*": 2,  "N1a1a": 3,  "Q*": 2,  "R1a1a*": 3 } },
   ];
 
-  // Haplogroup labels and broad family classification (the leading letter).
-  var HAPLOS = [
-    { id: "H_C2*",       name: "C2*",       family: "C", note: "C2-M217 root (broad Eurasian Steppe)" },
-    { id: "H_C2b1a2",    name: "C2b1a2",    family: "C", note: "C2-M48 / C2a1a2 (Mongolic / Naiman)" },
-    { id: "H_C2c1a1a1",  name: "C2c1a1a1",  family: "C", note: "C2-M407 (Konyrat)" },
-    { id: "H_G1",        name: "G1",        family: "G", note: "G-M285 (predominant in Argyn)" },
-    { id: "H_J1",        name: "J1*",       family: "J", note: "J-M267 (Near-Eastern)" },
-    { id: "H_J2",        name: "J2*",       family: "J", note: "J-M172 (Anatolia / Caucasus)" },
-    { id: "H_J2a1a",     name: "J2a1a",     family: "J", note: "J2a downstream subclade" },
-    { id: "H_N1a1a",     name: "N1a1a",     family: "N", note: "N-M178 (Uralic / Siberian)" },
-    { id: "H_Q",         name: "Q*",        family: "Q", note: "Q-M242 (Siberian)" },
-    { id: "H_R1a1a",     name: "R1a1a*",    family: "R", note: "R-M17 (Indo-European Steppe)" },
-  ];
-
-  // Edges: [source tribe, target haplogroup, percentage].
-  var EDGES_DATA = [
-    // Senior zhuz
-    ["T_Uysun",    "H_C2*",      50],
-    ["T_Uysun",    "H_C2b1a2",   11],
-    ["T_Uysun",    "H_J1",       12],
-    ["T_Uysun",    "H_J2a1a",    14.1],
-    ["T_Zhalayir", "H_C2*",      38],
-    ["T_Zhalayir", "H_C2b1a2",    2],
-    ["T_Zhalayir", "H_N1a1a",    22],
-    ["T_Qangly",   "H_C2*",       7],
-    ["T_Qangly",   "H_Q",        48],
-    ["T_Qangly",   "H_J2",        7],
-    // Middle zhuz
-    ["T_Argyn",    "H_G1",       67],
-    ["T_Argyn",    "H_C2*",       3],
-    ["T_Argyn",    "H_R1a1a",     6],
-    ["T_Kerey",    "H_C2*",      66],
-    ["T_Kerey",    "H_G1",        4],
-    ["T_Konyrat",  "H_C2c1a1a1", 86],
-    ["T_Konyrat",  "H_C2*",       2],
-    ["T_Kipchak",  "H_C2*",       2],
-    ["T_Kipchak",  "H_R1a1a",     8],
-    ["T_Naiman",   "H_C2b1a2",   77],
-    ["T_Naiman",   "H_C2*",      10],
-    ["T_Naiman",   "H_J2",        2.2],
-    ["T_Uaq",      "H_C2*",       2],
-    ["T_Uaq",      "H_N1a1a",    64],
-    // Junior zhuz
-    ["T_Alimuly",  "H_C2b1a2",   77],
-    ["T_Alimuly",  "H_C2*",       2],
-    ["T_Baiuly",   "H_C2b1a2",   69],
-    ["T_Baiuly",   "H_C2*",      13],
-  ];
-
-  var EDGES = EDGES_DATA.map(function (e, i) {
-    return { id: "E" + i, source: e[0], target: e[1], pct: e[2] };
+  // Three columns by zhuz. Library's "vertical sibling" routing keeps
+  // same-column edges clean.
+  var COL_X = { Senior: 80, Middle: 580, Junior: 1080 };
+  var COL_Y = {
+    Senior: [130, 290, 450],
+    Middle: [40, 170, 300, 430, 560, 690],
+    Junior: [220, 380],
+  };
+  var slot = { Senior: 0, Middle: 0, Junior: 0 };
+  TRIBES.forEach(function (t) {
+    t.position = { x: COL_X[t.zhuz], y: COL_Y[t.zhuz][slot[t.zhuz]++] };
   });
 
-  // ---- Renderers -------------------------------------------------------
+  // ---- Color map: evolution-demo palette by haplogroup ----------------
+  // C2b1a2 ("C-M48") gets homo gold because it's the founder lineage
+  // story — three tribes across two zhuzes carry it at high frequency.
+  var HAPLO_COLOR = {
+    "C2*":       "#dc2626",   // animal red — broad Eurasian Steppe
+    "C2b1a2":    "#fbbf24",   // homo gold  — C-M48 founder lineage
+    "C2c1a1a1":  "#f43f5e",   // rose       — C-M407, Konyrat-only
+    "G1":        "#f97316",   // vertebrate orange — Caucasus / W. Asia
+    "J1*":       "#a855f7",   // primate purple — Near East
+    "J2*":       "#a855f7",
+    "J2a1a":     "#a855f7",
+    "N1a1a":     "#0284c7",   // bacteria blue — N. Eurasian / Uralic
+    "Q*":        "#ec4899",   // mammal pink — Inner Asian
+    "R1a1a*":    "#16a34a",   // plant green — Indo-European
+  };
+  function haploColor(h) { return HAPLO_COLOR[h] || "#94a3b8"; }
+
+  // ---- Build the multigraph -------------------------------------------
+  // One edge per (tribe-pair, shared haplogroup). Each edge has a SINGLE
+  // haplogroup identity, so it can be drawn in the haplogroup's color.
+
+  // Collect every (haplogroup, [tribes carrying it]) entry.
+  var HAPLOS = {};   // haplogroup id -> list of { tribe, pct }
+  TRIBES.forEach(function (t) {
+    for (var h in t.haplo) {
+      (HAPLOS[h] = HAPLOS[h] || []).push({ tribe: t, pct: t.haplo[h] });
+    }
+  });
+
+  // Generate all (pair, haplogroup) edges. Filter by min(A, B) >= threshold
+  // so we keep meaningful connections and avoid 55 weak C2* lines.
+  // Default 10 % — tunable from the toolbar.
+  var DEFAULT_MIN = 10;
+
+  function buildEdges(minMin) {
+    var edges = [];
+    for (var h in HAPLOS) {
+      var carriers = HAPLOS[h];
+      for (var i = 0; i < carriers.length; i++) {
+        for (var j = i + 1; j < carriers.length; j++) {
+          var a = carriers[i], b = carriers[j];
+          var mn = Math.min(a.pct, b.pct);
+          if (mn < minMin) continue;
+          edges.push({
+            id: "E_" + a.tribe.id + "_" + b.tribe.id + "_" + h,
+            source: a.tribe.id,
+            target: b.tribe.id,
+            haplogroup: h,
+            pctA: a.pct,
+            pctB: b.pct,
+            weight: mn,
+          });
+        }
+      }
+    }
+    return assignCurveOffsets(edges);
+  }
+
+  // Group parallel edges (same source/target pair) and assign each one
+  // a perpendicular curve offset so they fan out instead of overlapping.
+  // Offsets centered on 0: a single edge stays straight, two edges go to
+  // ±k, three go to {-k, 0, +k}, etc.
+  function assignCurveOffsets(edges) {
+    var byPair = {};
+    edges.forEach(function (e) {
+      var key = e.source < e.target
+        ? e.source + "|" + e.target
+        : e.target + "|" + e.source;
+      (byPair[key] = byPair[key] || []).push(e);
+    });
+    var SPACING = 40;
+    Object.values(byPair).forEach(function (group) {
+      // Stable order: by haplogroup name, so layout is reproducible.
+      group.sort(function (a, b) { return a.haplogroup < b.haplogroup ? -1 : 1; });
+      var n = group.length;
+      group.forEach(function (e, i) {
+        e.curveOffset = (i - (n - 1) / 2) * SPACING;
+      });
+    });
+    return edges;
+  }
+
+  // ---- Renderers ------------------------------------------------------
 
   function escapeHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -91,196 +147,197 @@
   }
 
   function renderNode(node, el) {
-    if (node.kind === "tribe") {
-      el.classList.add("tribe", "zhuz--" + node.zhuz.toLowerCase());
-      el.innerHTML =
-        '<div class="tribe__name">' + escapeHtml(node.name) + '</div>' +
-        '<div class="tribe__meta">' +
-          '<span class="zhuz">' + escapeHtml(node.zhuz) + '</span>' +
-          ' zhuz · n = ' + node.n +
-        '</div>';
-    } else {
-      el.classList.add("haplo", "fam-" + node.family);
-      el.innerHTML =
-        '<div class="haplo__name">' + escapeHtml(node.name) + '</div>' +
-        '<div class="haplo__family">family ' + escapeHtml(node.family) + '</div>';
-    }
+    el.classList.add("tribe", "zhuz--" + node.zhuz.toLowerCase());
+    el.innerHTML =
+      '<div class="tribe__name">' + escapeHtml(node.name) + '</div>' +
+      '<div class="tribe__meta">' +
+        '<span class="zhuz">' + escapeHtml(node.zhuz) + '</span>' +
+        ' · n = ' + node.n +
+      '</div>';
   }
 
-  // ---- Edge styling ----------------------------------------------------
-  // Width = sqrt(pct) so a 64% edge isn't 32× as thick as a 2% one but
-  // still clearly heavier. Color = haplogroup family (so when you trace
-  // an edge backwards from a tribe, the dominant color tells you which
-  // continental lineage that tribe descends from).
-
-  var FAMILY_COLOR = {
-    C: "#b91c1c",
-    G: "#b45309",
-    J: "#6d28d9",
-    N: "#0369a1",
-    Q: "#be185d",
-    R: "#047857",
-  };
-
-  function edgeWidth(pct) {
-    return 0.6 + Math.sqrt(Math.max(0, pct)) * 0.55; // 0.6 .. ~5.0 px
+  // Edge weight scales width modestly; the founder edges (~77) read
+  // clearly heavier than the broad-Steppe ones (~10-50) without dwarfing.
+  function edgeWidth(w) {
+    return 1.2 + Math.sqrt(Math.max(0, w)) * 0.55;
   }
 
   function edgeStyle(edge, state) {
-    var haplo = HAPLO_BY_ID[edge.target];
-    var fam = haplo ? haplo.family : "C";
-    var baseColor = FAMILY_COLOR[fam] || "#94a3b8";
-    var w = edgeWidth(edge.pct);
-    if (state === "hover")    return { stroke: "#0f172a", width: w + 1, arrow: true };
-    if (state === "selected") return { stroke: "#0f172a", width: w + 1.5, arrow: true };
-    if (state === "neighbor") return { stroke: baseColor, width: w + 0.8, arrow: true };
-    // Base: fade lighter as pct drops, so big-frequency edges dominate visually.
-    var alpha = Math.max(0.18, Math.min(1, edge.pct / 60));
-    return { stroke: hexToRgba(baseColor, alpha), width: w, arrow: true };
+    var c = haploColor(edge.haplogroup);
+    var w = edgeWidth(edge.weight);
+    if (state === "hover")    return { stroke: "#f1f5f9", width: w + 1.0, arrow: false };
+    if (state === "selected") return { stroke: "#f1f5f9", width: w + 1.5, arrow: false };
+    if (state === "neighbor") return { stroke: c, width: w + 0.6, arrow: false };
+    var alpha = Math.max(0.45, Math.min(1, edge.weight / 50));
+    return { stroke: hexToRgba(c, alpha), width: w, arrow: false };
   }
 
   function hexToRgba(hex, a) {
     var h = hex.replace("#", "");
-    var r = parseInt(h.substring(0, 2), 16);
-    var g = parseInt(h.substring(2, 4), 16);
-    var b = parseInt(h.substring(4, 6), 16);
-    return "rgba(" + r + "," + g + "," + b + "," + a.toFixed(2) + ")";
+    return "rgba(" + parseInt(h.substring(0, 2), 16) + "," +
+                     parseInt(h.substring(2, 4), 16) + "," +
+                     parseInt(h.substring(4, 6), 16) + "," + a.toFixed(2) + ")";
   }
 
-  // ---- Build node list with `kind` discriminator ----------------------
+  // ---- Construct the graph -------------------------------------------
 
-  var HAPLO_BY_ID = {};
-  HAPLOS.forEach(function (h) { HAPLO_BY_ID[h.id] = h; });
   var TRIBE_BY_ID = {};
   TRIBES.forEach(function (t) { TRIBE_BY_ID[t.id] = t; });
 
-  var NODES = [].concat(
-    TRIBES.map(function (t) { return Object.assign({ kind: "tribe", label: t.name }, t); }),
-    HAPLOS.map(function (h) { return Object.assign({ kind: "haplo", label: h.name }, h); })
-  );
-
-  // ---- Threshold filter ------------------------------------------------
-
-  var minPct = 0; // show all by default
-
-  function visibleEdges() {
-    return EDGES.filter(function (e) { return e.pct >= minPct; });
-  }
-
-  // ---- Construct the graph --------------------------------------------
+  var EDGES = buildEdges(DEFAULT_MIN);
 
   var graph = new Graph(document.getElementById("graph"), {
-    nodes: NODES,
-    edges: visibleEdges(),
+    nodes: TRIBES.map(function (t) { return Object.assign({ label: t.name }, t); }),
+    edges: EDGES,
     direction: "LR",
-    nodeWidth: 180,
+    nodeWidth: 200,
     nodeHeight: 56,
-    rankSeparation: 280,   // generous gap so labels and edge weights breathe
-    nodeSeparation: 12,
     renderNode: renderNode,
     edgeStyle: edgeStyle,
     hitTolerancePx: 8,
-    onNodeClick: showNodeInfo,
+    onNodeClick: showTribeInfo,
     onEdgeClick: showEdgeInfo,
     onPaneClick: clearInfo,
   });
 
-  // ---- Threshold toolbar buttons --------------------------------------
+  // ---- Toolbar --------------------------------------------------------
+  // Two filter dimensions: minimum overlap (threshold) and per-haplogroup
+  // visibility toggle. Together they let you isolate "show me only the
+  // C-M48 connections at high frequency" etc.
 
-  function setThreshold(p) {
-    minPct = p;
-    graph.setEdges(visibleEdges());
-    refreshToolbar();
+  var minOverlap = DEFAULT_MIN;
+  var hiddenHaplos = {};
+
+  function refresh() {
+    var all = buildEdges(minOverlap);
+    var filtered = all.filter(function (e) { return !hiddenHaplos[e.haplogroup]; });
+    graph.setEdges(filtered);
+    refreshButtons();
   }
-  function refreshToolbar() {
-    // Library's _refreshToolbar runs after onClick but our buttons share
-    // a single state variable; manually toggle is-active.
+  function refreshButtons() {
     document.querySelectorAll('.gv-toolbar [data-id^="th-"]').forEach(function (b) {
-      b.classList.remove("is-active");
+      b.classList.toggle("is-active", b.getAttribute("data-id") === ("th-" + (minOverlap === 5 ? "all" : minOverlap)));
     });
-    var id = "th-" + (minPct === 0 ? "all" : minPct);
-    var btn = document.querySelector('.gv-toolbar [data-id="' + id + '"]');
-    if (btn) btn.classList.add("is-active");
+    document.querySelectorAll('.gv-toolbar [data-id^="h-"]').forEach(function (b) {
+      var h = b.getAttribute("data-haplo");
+      b.classList.toggle("is-active", !hiddenHaplos[h]);
+    });
   }
 
-  graph.addToolbarButton({ id: "th-all", label: "All",    title: "Show every edge",        onClick: function () { setThreshold(0); } }, { newGroup: true });
-  graph.addToolbarButton({ id: "th-5",   label: "≥ 5 %",  title: "Hide edges below 5 %",   onClick: function () { setThreshold(5); } });
-  graph.addToolbarButton({ id: "th-10",  label: "≥ 10 %", title: "Hide edges below 10 %",  onClick: function () { setThreshold(10); } });
-  graph.addToolbarButton({ id: "th-25",  label: "≥ 25 %", title: "Hide edges below 25 %",  onClick: function () { setThreshold(25); } });
-  refreshToolbar();
+  // Threshold controls
+  graph.addToolbarButton({ id: "th-all", label: "All",   title: "Min overlap ≥ 5 %",  onClick: function () { minOverlap = 5;  refresh(); } }, { newGroup: true });
+  graph.addToolbarButton({ id: "th-10",  label: "≥ 10",  title: "Min overlap ≥ 10 %", onClick: function () { minOverlap = 10; refresh(); } });
+  graph.addToolbarButton({ id: "th-25",  label: "≥ 25",  title: "Min overlap ≥ 25 %", onClick: function () { minOverlap = 25; refresh(); } });
+  graph.addToolbarButton({ id: "th-50",  label: "≥ 50",  title: "Min overlap ≥ 50 %", onClick: function () { minOverlap = 50; refresh(); } });
 
-  // ---- Info pane on click ---------------------------------------------
+  // Per-haplogroup toggle (one button per haplogroup that contributes
+  // edges at the default threshold).
+  var SHOWN_HAPLOS = [];
+  Object.keys(HAPLOS).forEach(function (h) {
+    // Only include haplogroups that connect at least one pair at the
+    // default threshold.
+    var any = buildEdges(DEFAULT_MIN).some(function (e) { return e.haplogroup === h; });
+    if (any) SHOWN_HAPLOS.push(h);
+  });
+  SHOWN_HAPLOS.forEach(function (h, i) {
+    graph.addToolbarButton({
+      id: "h-" + h.replace(/[^a-zA-Z0-9]/g, ""),
+      label: h,
+      title: "Toggle " + h + " edges",
+      onClick: function () {
+        hiddenHaplos[h] = !hiddenHaplos[h];
+        refresh();
+      },
+    }, i === 0 ? { newGroup: true } : undefined);
+    // Color the button label.
+    setTimeout(function () {
+      var b = document.querySelector('.gv-toolbar [data-id="h-' + h.replace(/[^a-zA-Z0-9]/g, "") + '"]');
+      if (b) {
+        b.setAttribute("data-haplo", h);
+        b.style.borderBottom = "2px solid " + haploColor(h);
+      }
+    }, 0);
+  });
+  refreshButtons();
+
+  // ---- Info pane ------------------------------------------------------
 
   var info = document.getElementById("info");
 
-  function showNodeInfo(node) {
-    if (node.kind === "tribe") {
-      // Find all haplogroups for this tribe, sorted by pct desc.
-      var rows = EDGES
-        .filter(function (e) { return e.source === node.id; })
-        .sort(function (a, b) { return b.pct - a.pct; });
-      info.innerHTML =
-        '<h2>' + escapeHtml(node.name) + ' tribe</h2>' +
-        '<p><span class="zhuz" style="color:' + zhuzColor(node.zhuz) + ';font-weight:600">' +
-          escapeHtml(node.zhuz) + '</span> zhuz · sample n = ' + node.n + '</p>' +
-        '<p class="muted">Dominant paternal haplogroups:</p>' +
-        '<div class="badges">' +
-          rows.map(function (e) {
-            var h = HAPLO_BY_ID[e.target];
-            return '<span class="badge" style="border-color:' + FAMILY_COLOR[h.family] + '">' +
-                   escapeHtml(h.name) + ' &nbsp;' + e.pct + ' %</span>';
-          }).join('') +
-        '</div>';
-    } else {
-      // Haplogroup: list tribes that carry it, sorted by pct.
-      var rows2 = EDGES
-        .filter(function (e) { return e.target === node.id; })
-        .sort(function (a, b) { return b.pct - a.pct; });
-      info.innerHTML =
-        '<h2>Haplogroup <span style="font-family:ui-monospace,monospace">' +
-          escapeHtml(node.name) + '</span></h2>' +
-        '<p class="muted">' + escapeHtml(node.note || "") + '</p>' +
-        '<p class="muted">Carriers among Kazakh tribes:</p>' +
-        '<div class="badges">' +
-          rows2.map(function (e) {
-            var t = TRIBE_BY_ID[e.source];
-            return '<span class="badge" style="border-color:' + zhuzColor(t.zhuz) + '">' +
-                   escapeHtml(t.name) + ' &nbsp;' + e.pct + ' %</span>';
-          }).join('') +
-        '</div>';
-    }
+  function haploPill(h) {
+    return '<span class="haplo" style="border-color:' + haploColor(h) + ';color:' + haploColor(h) + '">' +
+           escapeHtml(h) + '</span>';
+  }
+
+  function showTribeInfo(node) {
+    // The tribe's own haplogroup composition.
+    var ownRows = Object.keys(node.haplo)
+      .sort(function (a, b) { return node.haplo[b] - node.haplo[a]; })
+      .map(function (h) {
+        return '<div style="display:flex;justify-content:space-between;padding:3px 0">' +
+               haploPill(h) +
+               '<span class="muted" style="font-variant-numeric:tabular-nums">' + node.haplo[h] + ' %</span>' +
+               '</div>';
+      }).join("");
+
+    // Every haplogroup-edge incident to this tribe, in current graph.
+    var visible = graph.edges.filter(function (e) {
+      return e.source === node.id || e.target === node.id;
+    });
+    visible.sort(function (a, b) { return b.weight - a.weight; });
+
+    var edgeRows = visible.map(function (e) {
+      var other = e.source === node.id ? TRIBE_BY_ID[e.target] : TRIBE_BY_ID[e.source];
+      var thisPct = e.source === node.id ? e.pctA : e.pctB;
+      var otherPct = e.source === node.id ? e.pctB : e.pctA;
+      return '<div class="neighbor-row">' +
+        '<div>' +
+          haploPill(e.haplogroup) +
+          ' <span class="neighbor-name">' + escapeHtml(other.name) + '</span>' +
+          '<span class="muted" style="font-size:10px"> · ' + escapeHtml(other.zhuz) + '</span>' +
+        '</div>' +
+        '<div class="muted" style="font-variant-numeric:tabular-nums;font-size:11px">' +
+          thisPct + ' / ' + otherPct + ' → <strong style="color:#f1f5f9">' + e.weight.toFixed(0) + '</strong>' +
+        '</div>' +
+      '</div>';
+    }).join("");
+
+    info.innerHTML =
+      '<h2>' + escapeHtml(node.name) + '</h2>' +
+      '<p class="muted"><span class="zhuz">' + escapeHtml(node.zhuz) + '</span> zhuz · sample n = ' + node.n + '</p>' +
+      '<p class="muted">Haplogroups in this tribe:</p>' + ownRows +
+      (edgeRows
+        ? '<p class="muted" style="margin-top:10px">Haplogroup edges (' + visible.length + '):</p>' + edgeRows
+        : '<p class="muted">No haplogroup edges above the current threshold.</p>');
   }
 
   function showEdgeInfo(edge) {
-    var t = TRIBE_BY_ID[edge.source];
-    var h = HAPLO_BY_ID[edge.target];
+    var a = TRIBE_BY_ID[edge.source], b = TRIBE_BY_ID[edge.target];
     info.innerHTML =
-      '<h2>' + escapeHtml(t.name) + ' → ' + escapeHtml(h.name) + '</h2>' +
-      '<p><strong>' + edge.pct + ' %</strong> of sampled ' +
-        escapeHtml(t.name) + ' males carry <span style="font-family:ui-monospace,monospace">' +
-        escapeHtml(h.name) + '</span>.</p>' +
-      '<p class="muted">' + escapeHtml(h.note || "") + '</p>';
+      '<h2>' + haploPill(edge.haplogroup) + ' edge</h2>' +
+      '<p>Connects <strong>' + escapeHtml(a.name) + '</strong> &nbsp;~&nbsp; <strong>' + escapeHtml(b.name) + '</strong></p>' +
+      '<p>' + escapeHtml(a.name) + ' carries ' + edge.haplogroup + ' at <strong style="color:#f1f5f9">' + edge.pctA + ' %</strong></p>' +
+      '<p>' + escapeHtml(b.name) + ' carries ' + edge.haplogroup + ' at <strong style="color:#f1f5f9">' + edge.pctB + ' %</strong></p>' +
+      '<p class="muted">Edge weight = min(' + edge.pctA + ', ' + edge.pctB + ') = <strong style="color:#f1f5f9">' + edge.weight.toFixed(0) + '</strong></p>' +
+      '<p class="muted" style="margin-top:10px">An edge of type <strong>' + escapeHtml(edge.haplogroup) + '</strong> exists between any two tribes that both carry this haplogroup above the current threshold.</p>';
   }
 
   function clearInfo() {
     info.innerHTML =
-      '<h2>Click a node</h2>' +
-      '<p class="muted">Click a tribe to see which haplogroups dominate ' +
-        'its paternal lineage. Click a haplogroup to see which tribes ' +
-        'carry it most.</p>';
+      '<h2>Tribes = nodes, haplogroups = edges</h2>' +
+      '<p class="muted">Two tribes are connected by an edge for every ' +
+      'paternal haplogroup they both carry above the threshold. Edge ' +
+      'color identifies the haplogroup; edge weight is the joint ' +
+      'frequency <code>min(A %, B %)</code>.</p>' +
+      '<p class="muted">Click a tribe to see all its haplogroup-edges. ' +
+      'Click an edge to see the per-pair breakdown.</p>';
   }
 
-  function zhuzColor(z) {
-    return z === "Senior" ? "#2563eb"
-         : z === "Middle" ? "#047857"
-         : "#b45309";
-  }
-
-  // Expose for the test/probe harness.
+  // Test hook.
   window.__demo = {
     graph: graph,
     get nodes() { return graph.nodes; },
     get edges() { return graph.edges; },
-    setThreshold: setThreshold,
+    buildEdges: buildEdges,
   };
 })();

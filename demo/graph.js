@@ -166,13 +166,49 @@
     if (dir === "TB") return (t.y + t.h / 2) < (s.y + s.h / 2) - 10;
     return (t.x + t.w / 2) < (s.x + s.w / 2) - 10;
   }
-  function sampleBezier(a, b, dir, samples, backward) {
+  // "Vertical sibling": same column in LR mode (or same row in TB) with a
+  // non-trivial perpendicular gap. Common with static positions — without
+  // special handling the regular forward routing produces an ugly
+  // horizontal-S between two nodes that are stacked above one another.
+  function isVertical(s, t, dir) {
+    var sx = s.x + s.w / 2, tx = t.x + t.w / 2;
+    var sy = s.y + s.h / 2, ty = t.y + t.h / 2;
+    if (dir === "TB") return Math.abs(ty - sy) < 30 && Math.abs(tx - sx) > 30;
+    return Math.abs(tx - sx) < 30 && Math.abs(ty - sy) > 30;
+  }
+  function anchorsVertical(s, t, dir) {
+    var sy = s.y + s.h / 2, ty = t.y + t.h / 2;
+    var sx = s.x + s.w / 2, tx = t.x + t.w / 2;
+    if (dir === "TB") {
+      // Same-row siblings under TB: enter/exit from the left or right side.
+      if (sx < tx) return { a: { x: s.x + s.w, y: sy }, b: { x: t.x, y: ty } };
+      return                { a: { x: s.x, y: sy },       b: { x: t.x + t.w, y: ty } };
+    }
+    // LR: enter/exit from top or bottom, depending on which is higher.
+    if (sy < ty) return { a: { x: sx, y: s.y + s.h }, b: { x: tx, y: t.y } };
+    return                { a: { x: sx, y: s.y },       b: { x: tx, y: t.y + t.h } };
+  }
+  function sampleBezier(a, b, dir, samples, mode, curveOffset) {
     // 16 samples produces a curve visually indistinguishable from 24 at any
     // reasonable zoom but cuts stroke geometry by 33% — meaningful on engines
     // (notably WebKit) where ctx.stroke time is dominated by segment count.
     samples = samples || 16;
     var dx = b.x - a.x, dy = b.y - a.y, c1, c2;
-    if (backward) {
+    if (mode === "vertical") {
+      // Same-column (LR) or same-row (TB) routing — keep the control
+      // points on the connecting axis so the curve runs cleanly along it.
+      if (dir === "TB") {
+        var offh2 = Math.max(40, Math.abs(dx) * 0.4);
+        var sgn = dx < 0 ? -1 : 1;
+        c1 = { x: a.x + sgn * offh2, y: a.y };
+        c2 = { x: b.x - sgn * offh2, y: b.y };
+      } else {
+        var offv2 = Math.max(40, Math.abs(dy) * 0.4);
+        var sgnv = dy < 0 ? -1 : 1;
+        c1 = { x: a.x, y: a.y + sgnv * offv2 };
+        c2 = { x: b.x, y: b.y - sgnv * offv2 };
+      }
+    } else if (mode === "backward") {
       // Arc routing: keep control points on the SAME side as the anchors
       // (top side for LR, left side for TB) and offset along the
       // perpendicular axis so the curve arcs cleanly above/beside the
@@ -190,6 +226,18 @@
     } else {
       var offh = Math.max(40, Math.abs(dx) * 0.4);
       c1 = { x: a.x + offh, y: a.y }; c2 = { x: b.x - offh, y: b.y };
+    }
+    // Parallel-edge support: shift the bezier control points perpendicular
+    // to the connecting axis so multiple edges between the same pair fan
+    // out visually instead of overlapping. Anchors stay shared so each
+    // edge still meets its node at the same point.
+    if (curveOffset) {
+      // Perpendicular direction to the chord a→b
+      var ax = b.x - a.x, ay = b.y - a.y;
+      var len = Math.sqrt(ax * ax + ay * ay) || 1;
+      var nx = -ay / len, ny = ax / len;
+      c1.x += nx * curveOffset; c1.y += ny * curveOffset;
+      c2.x += nx * curveOffset; c2.y += ny * curveOffset;
     }
     var pts = new Array(samples + 1);
     for (var i = 0; i <= samples; i++) {
@@ -433,9 +481,15 @@
   function buildEdgeGeometry(e, positions, dir) {
     var s = positions[e.source], t = positions[e.target];
     if (!s || !t) return null;
-    var backward = isBackward(s, t, dir);
-    var ab = backward ? anchorsBackward(s, t, dir) : anchors(s, t, dir);
-    var pts = sampleBezier(ab.a, ab.b, dir, undefined, backward);
+    // Pick routing mode based on relative position:
+    //   vertical — same column (LR) or same row (TB), stacked perpendicular
+    //   backward — target sits behind source along the flow axis
+    //   forward — the default
+    var mode, ab;
+    if (isVertical(s, t, dir))      { mode = "vertical"; ab = anchorsVertical(s, t, dir); }
+    else if (isBackward(s, t, dir)) { mode = "backward"; ab = anchorsBackward(s, t, dir); }
+    else                            { mode = "forward";  ab = anchors(s, t, dir); }
+    var pts = sampleBezier(ab.a, ab.b, dir, undefined, mode, e.curveOffset);
     var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (var j = 0; j < pts.length; j++) {
       var p = pts[j];

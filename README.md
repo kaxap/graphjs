@@ -187,51 +187,102 @@ and add them with `graph.addNode` / `graph.addEdge`.
 
 ### 2. Kazakh tribes — `demo/tribes.html`
 
-A bipartite graph showing how Kazakh tribes connect through paternal
-Y-DNA haplogroups. Data is from the Wikipedia article
+A **genetic-kinship network** of 11 Kazakh tribes — tribes connected
+to each other based on the paternal haplogroups they share, rather
+than a bipartite tribes-↔-haplogroups view. Data is from the
+Wikipedia article
 [*Y-DNA haplogroups in Kazakh tribes*](https://en.wikipedia.org/wiki/Y-DNA_haplogroups_in_Kazakh_tribes).
 
-![Kazakh tribes ↔ haplogroups](demo/screenshots/chromium/tribes-01.png)
+![Kazakh tribes kinship network](demo/screenshots/chromium/tribes-01.png)
 
-The same library, no new features needed — just different data and a
-different `renderNode`. Tribes (left column) are color-coded by **zhuz**
-(tribal union: Senior / Middle / Junior); haplogroups (right column) are
-color-coded by haplogroup family (C, G, J, N, Q, R). Edge thickness
-scales with frequency (∝ √percentage), and edge color matches the
-haplogroup family so visually you can trace where each tribe's
-dominant paternal lineage comes from.
+**How edges are computed.** For each pair of tribes (A, B):
 
-Click a tribe or a haplogroup to see its detailed breakdown:
+```
+similarity(A, B) = Σ_h  min( A.pct[h], B.pct[h] )
+```
 
-![Naiman selected — 77 % C2b1a2](demo/screenshots/chromium/tribes-02-naiman.png)
+over all Y-DNA haplogroups `h`. That sum is the joint frequency of
+paternal lineages the two tribes share. The edge color is the
+**dominant shared haplogroup** — the one contributing the largest
+`min(…)` to the total — using the same palette family as the
+[Evolution demo](#4-map-of-evolution--demoevolutionhtml). Edge width
+scales with `√similarity`.
 
-Selecting **Naiman** lights up the C2b1a2 ("C2-M48") link in heavy red:
-77 % of Naiman males carry that lineage — strong evidence of a single
-founding paternal ancestor. Compare to the more cosmopolitan **Uysun**
-(50 % C2*, 14 % J2a1a, 12 % J1*, 11 % C2b1a2), whose paternal ancestry
-draws from both the Steppe (C lineages) and the Near East / Caucasus
-(J lineages).
+**Layout.** Three columns by zhuz (tribal union): Senior on the left,
+Middle in the middle, Junior on the right. Tribes carry a colored
+left-border accent showing their zhuz (cyan / emerald / amber). The
+columnar layout makes the central question of the graph visually
+obvious: *do shared haplogroups respect zhuz boundaries, or cut
+across them?*
 
-The custom toolbar adds `All / ≥ 5 % / ≥ 10 % / ≥ 25 %` filters so you
-can isolate the strongest associations. At the 25 % cutoff, the graph
-becomes a clean picture of founder lineages:
+#### The story the graph tells
 
-![Threshold ≥ 25 %](demo/screenshots/chromium/tribes-04-th25.png)
+- The **thickest gold edge** is the **Alimuly ↔ Baiuly** C-M48
+  (C2b1a2) link: 77 % of Alimuly males and 69 % of Baiuly males carry
+  this lineage — the founder bond of the Junior zhuz, often associated
+  with descent from Emir Alau. Edge weight is `min(77, 69) = 69`.
+- **Naiman** (Middle zhuz) carries C-M48 at a *moderate* 27 % and is
+  attached to both Junior tribes by thinner gold edges at weight 27.
+  Less dramatic than the Junior pair, but still a meaningful
+  cross-zhuz genetic link.
+- **Red C2\* edges** (broad Eurasian Steppe) form the background
+  network: Uysun (50 %), Zhalayir (38 %), Kerey (66 %), Naiman (10 %),
+  and Baiuly (13 %) all carry it at ≥10 %, so they're mutually
+  connected.
+- A **blue N1a1a edge** at weight 22 between **Zhalayir** (Senior,
+  22 %) and **Uaq** (Middle, 64 %) reflects shared Uralic / Siberian
+  ancestry — a cross-zhuz bond mirroring the C-M48 pattern.
+- Below the default threshold (at ≥5 %), more sub-networks appear:
+  a **J2 chain** (Kipchak 22 % — Uysun 8 % — Qangly 7 %) and an
+  **R1a1a network** spanning Zhalayir, Argyn, Kerey, and Kipchak at
+  6–8 %.
+- **Argyn**, despite being one of the largest Middle-zhuz tribes,
+  is almost an isolate at high thresholds: its founder lineage is G1
+  (67 %) which barely shows up elsewhere. At ≥5 % it gains
+  connections via C-M48 (5 %), R1a1a (6 %), and G1 (7 % shared with
+  Qangly).
+- **Konyrat** is essentially genetically alone: 86 % of its men carry
+  C-M407 (C2c1a1a1), a lineage no other tribe carries at meaningful
+  frequency. No edges at any threshold > 4 %.
 
-You can see:
-- **C2-M48 (C2b1a2)** dominates Naiman, Alimuly, Baiuly — supporting
-  the traditional Alau-descendant claim for the Junior Zhuz.
-- **G1** is the founder lineage of Argyn (67 %) — unusual for a Turkic
-  group, hinting at a Caucasus / West-Asian origin.
-- **C2-M407 (C2c1a1a1)** is essentially a Konyrat-only lineage (86 %).
-- **N1a1a** points to Uralic / Siberian ancestry, concentrated in Uaq
-  (64 %) and Zhalayir (22 %).
-- **Q*** is the dominant Qangly haplogroup (48 %), characteristic of
-  Inner-Asian / Siberian populations.
+Clicking **Naiman** opens its full breakdown — paternal haplogroups
+first, then genetic neighbors sorted by shared dominance:
 
-It's a good showcase for how the same library renders three completely
-different kinds of graphs (process lineage, stress test, bipartite
-genetic relationships) with only a `renderNode` and `edgeStyle` change.
+![Naiman selected](demo/screenshots/chromium/tribes-02-naiman.png)
+
+The toolbar's threshold filters (`All / ≥ 10 / ≥ 25 / ≥ 50`) let you
+peel away weaker connections. At **≥ 50** only founder-level links
+remain, and the cross-zhuz C2-M48 triangle (Naiman ↔ Alimuly ↔ Baiuly)
+stands almost alone alongside one C2* link between Uysun and Kerey:
+
+![Threshold ≥ 50 — the founder triangle](demo/screenshots/chromium/tribes-04-th50.png)
+
+#### Library features exercised
+
+- **Static-positioned, undirected graph.** The 11 tribes are placed
+  at hand-tuned coordinates via `node.position`. Edges set
+  `arrow: false` because "shared haplogroup" is a symmetric relation.
+- **Same-column edge routing.** Three Senior tribes stack in one
+  column; six Middle tribes stack in another; the two Junior tribes
+  stack in the third. The library detects "vertical sibling" pairs
+  (same column, different y) and routes the bezier along the
+  connecting axis, instead of producing the horizontal-S that
+  forward routing would give for stacked nodes. This was added to
+  the library specifically for this demo; it also cleans up the
+  Iran demo's same-column edges and helps any static-positioned
+  graph.
+- **Dark theme** via the `--gv-*` CSS variables on `.gv`.
+- **Click-driven info panel** shows haplogroup composition + a
+  sorted neighbor table for a tribe, or the per-haplogroup overlap
+  breakdown for an edge.
+
+> ⚠ Sample sizes vary by tribe (Qangly: n = 27, Argyn: n = 384). Only
+> haplogroups carried at ≥ 2 % are in the dataset; minor lineages
+> below that threshold are omitted. Percentages come from the primary
+> table on the linked Wikipedia article, which is itself a summary of
+> several primary studies — different subclades and different sampling
+> can produce noticeably different numbers, so treat the values as
+> illustrative rather than definitive.
 
 ### 3. Iran–Israel–US 2025 — `demo/iran-war.html`
 
