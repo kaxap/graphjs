@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Kazakh tribes — Y-DNA haplogroup connections</title>
+    <link rel="stylesheet" href="graph.css?v=5" />
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      /* ---- Tribe card (left column) ---- */
+      .gv-node.tribe {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+        padding: 8px 12px;
+        border-left-width: 4px;
+        border-left-style: solid;
+      }
+      .gv-node.tribe.zhuz--senior { border-left-color: #2563eb; }
+      .gv-node.tribe.zhuz--middle { border-left-color: #047857; }
+      .gv-node.tribe.zhuz--junior { border-left-color: #b45309; }
+
+      .tribe__name {
+        font-weight: 700;
+        font-size: 14px;
+        color: #0f172a;
+        line-height: 1.1;
+      }
+      .tribe__meta {
+        font-size: 11px;
+        color: #64748b;
+      }
+      .tribe__meta .zhuz {
+        font-weight: 600;
+      }
+      .tribe.zhuz--senior .zhuz { color: #2563eb; }
+      .tribe.zhuz--middle .zhuz { color: #047857; }
+      .tribe.zhuz--junior .zhuz { color: #b45309; }
+
+      /* ---- Haplogroup card (right column) ---- */
+      .gv-node.haplo {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 6px 8px;
+        text-align: center;
+      }
+      .haplo__name {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-weight: 700;
+        font-size: 13px;
+        color: #0f172a;
+      }
+      .haplo__family {
+        font-size: 10px;
+        color: #64748b;
+        font-weight: 500;
+      }
+      .gv-node.haplo {
+        border-top-width: 3px;
+        border-top-style: solid;
+      }
+      .gv-node.haplo.fam-C { border-top-color: #b91c1c; background: #fef2f2; }
+      .gv-node.haplo.fam-G { border-top-color: #b45309; background: #fffbeb; }
+      .gv-node.haplo.fam-J { border-top-color: #6d28d9; background: #faf5ff; }
+      .gv-node.haplo.fam-N { border-top-color: #0369a1; background: #f0f9ff; }
+      .gv-node.haplo.fam-Q { border-top-color: #be185d; background: #fdf2f8; }
+      .gv-node.haplo.fam-R { border-top-color: #047857; background: #f0fdf4; }
+
+      /* ---- Side panel ---- */
+      .topbar { justify-content: space-between; }
+      .topbar__crumbs a { color: #2563eb; text-decoration: none; margin-right: 16px; }
+
+      .legend-pane {
+        position: absolute;
+        bottom: 12px; left: 12px;
+        z-index: 6;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        box-shadow: 0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.06);
+        font-size: 11px;
+        max-width: 280px;
+      }
+      .legend-pane h3 {
+        margin: 0 0 6px 0;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #64748b;
+      }
+      .legend-pane h3 + h3 { margin-top: 8px; }
+      .legend-pane .row { display: flex; align-items: center; gap: 8px; margin: 3px 0; color: #334155; }
+      .legend-pane .sw { display: inline-block; width: 14px; height: 4px; border-radius: 2px; }
+      .legend-pane .sw--zhuz { height: 12px; width: 4px; }
+      .legend-pane .source-note {
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid #f1f5f9;
+        color: #64748b;
+        line-height: 1.4;
+      }
+      .legend-pane .source-note a { color: #2563eb; text-decoration: none; }
+
+      .info-pane {
+        position: absolute;
+        top: 12px; right: 12px;
+        z-index: 6;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px 14px;
+        box-shadow: 0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.06);
+        font-size: 12px;
+        width: 260px;
+        color: #334155;
+      }
+      .info-pane h2 { margin: 0 0 6px 0; font-size: 13px; }
+      .info-pane p { margin: 4px 0; }
+      .info-pane .muted { color: #64748b; font-size: 11px; }
+      .info-pane .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+      .info-pane .badge {
+        font-size: 10px; padding: 2px 6px; border-radius: 999px;
+        background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;
+        font-family: ui-monospace, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__title">
+        <span class="topbar__logo">◆</span>
+        <span>Kazakh tribes — Y-DNA haplogroup connections</span>
+      </div>
+      <div class="topbar__crumbs">
+        <a href="index.html">← lineage demo</a>
+        <a href="large.html">stress test →</a>
+      </div>
+    </header>
+
+    <main id="graph" class="graph-host">
+      <aside class="legend-pane">
+        <h3>Zhuz (tribal union)</h3>
+        <div class="row"><span class="sw sw--zhuz" style="background:#2563eb"></span>Senior (Ұлы жүз)</div>
+        <div class="row"><span class="sw sw--zhuz" style="background:#047857"></span>Middle (Орта жүз)</div>
+        <div class="row"><span class="sw sw--zhuz" style="background:#b45309"></span>Junior (Кіші жүз)</div>
+
+        <h3>Haplogroup family</h3>
+        <div class="row"><span class="sw" style="background:#b91c1c"></span>C (Asian)</div>
+        <div class="row"><span class="sw" style="background:#b45309"></span>G (W. Asian / Caucasus)</div>
+        <div class="row"><span class="sw" style="background:#6d28d9"></span>J (Near East)</div>
+        <div class="row"><span class="sw" style="background:#0369a1"></span>N (N. Eurasian)</div>
+        <div class="row"><span class="sw" style="background:#be185d"></span>Q (Siberian / Native Am.)</div>
+        <div class="row"><span class="sw" style="background:#047857"></span>R (Indo-European)</div>
+
+        <div class="source-note">
+          Data:
+          <a href="https://en.wikipedia.org/wiki/Y-DNA_haplogroups_in_Kazakh_tribes"
+             target="_blank" rel="noopener">Y-DNA haplogroups in Kazakh tribes</a>
+          (Wikipedia). Percentages are dominant lineages per tribe;
+          minor haplogroups are omitted for clarity.
+        </div>
+      </aside>
+
+      <aside class="info-pane" id="info">
+        <h2>Click a node</h2>
+        <p class="muted">Click a tribe to see which haplogroups dominate
+          its paternal lineage. Click a haplogroup to see which tribes
+          carry it most.</p>
+      </aside>
+    </main>
+
+    <script src="graph.js?v=5"></script>
+    <script src="tribes.js"></script>
+  </body>
+</html>

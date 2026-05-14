@@ -8,7 +8,8 @@
       "Bash(python3 demo/assess.py webkit --stress-only)",
       "Bash(git stash *)",
       "Bash(python3 demo/bench.py)",
-      "Bash(wait b403io60e *)"
+      "Bash(wait b403io60e *)",
+      "WebFetch(domain:en.wikipedia.org)"
     ]
   }
 }

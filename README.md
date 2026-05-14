@@ -185,7 +185,55 @@ and add them with `graph.addNode` / `graph.addEdge`.
 
 ![After expanding upstream](demo/screenshots/chromium/05-expanded.png)
 
-### 2. Stress test — `demo/large.html`
+### 2. Kazakh tribes — `demo/tribes.html`
+
+A bipartite graph showing how Kazakh tribes connect through paternal
+Y-DNA haplogroups. Data is from the Wikipedia article
+[*Y-DNA haplogroups in Kazakh tribes*](https://en.wikipedia.org/wiki/Y-DNA_haplogroups_in_Kazakh_tribes).
+
+![Kazakh tribes ↔ haplogroups](demo/screenshots/chromium/tribes-01.png)
+
+The same library, no new features needed — just different data and a
+different `renderNode`. Tribes (left column) are color-coded by **zhuz**
+(tribal union: Senior / Middle / Junior); haplogroups (right column) are
+color-coded by haplogroup family (C, G, J, N, Q, R). Edge thickness
+scales with frequency (∝ √percentage), and edge color matches the
+haplogroup family so visually you can trace where each tribe's
+dominant paternal lineage comes from.
+
+Click a tribe or a haplogroup to see its detailed breakdown:
+
+![Naiman selected — 77 % C2b1a2](demo/screenshots/chromium/tribes-02-naiman.png)
+
+Selecting **Naiman** lights up the C2b1a2 ("C2-M48") link in heavy red:
+77 % of Naiman males carry that lineage — strong evidence of a single
+founding paternal ancestor. Compare to the more cosmopolitan **Uysun**
+(50 % C2*, 14 % J2a1a, 12 % J1*, 11 % C2b1a2), whose paternal ancestry
+draws from both the Steppe (C lineages) and the Near East / Caucasus
+(J lineages).
+
+The custom toolbar adds `All / ≥ 5 % / ≥ 10 % / ≥ 25 %` filters so you
+can isolate the strongest associations. At the 25 % cutoff, the graph
+becomes a clean picture of founder lineages:
+
+![Threshold ≥ 25 %](demo/screenshots/chromium/tribes-04-th25.png)
+
+You can see:
+- **C2-M48 (C2b1a2)** dominates Naiman, Alimuly, Baiuly — supporting
+  the traditional Alau-descendant claim for the Junior Zhuz.
+- **G1** is the founder lineage of Argyn (67 %) — unusual for a Turkic
+  group, hinting at a Caucasus / West-Asian origin.
+- **C2-M407 (C2c1a1a1)** is essentially a Konyrat-only lineage (86 %).
+- **N1a1a** points to Uralic / Siberian ancestry, concentrated in Uaq
+  (64 %) and Zhalayir (22 %).
+- **Q*** is the dominant Qangly haplogroup (48 %), characteristic of
+  Inner-Asian / Siberian populations.
+
+It's a good showcase for how the same library renders three completely
+different kinds of graphs (process lineage, stress test, bipartite
+genetic relationships) with only a `renderNode` and `edgeStyle` change.
+
+### 3. Stress test — `demo/large.html`
 
 The same library, now with **1000 nodes and 3000 edges** in a 10-layer
 DAG, generated procedurally:
@@ -549,6 +597,8 @@ demo/                 Runnable demos. Library files are copied here
   index.html            Lineage explorer demo.
   app.js                Mock data + customization callbacks.
   styles.css            Page chrome + lineage-card theming.
+  tribes.html           Bipartite demo: Kazakh tribes ↔ Y-DNA haplogroups.
+  tribes.js             Data + bipartite renderNode/edgeStyle.
   large.html            1000-node stress demo.
   large.js              Procedural graph generator.
   graph.js, graph.css   Copies of lib/. Refresh with `cp lib/graph.* demo/`.
