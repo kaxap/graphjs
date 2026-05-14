@@ -243,6 +243,15 @@
     },
     pressed: function (g) { var n = g.getLayoutName(); return n === "forceatlas2" || n === "fa2"; },
   });
+  graph.addToolbarButton({
+    id: "lay-fr", label: "FR",
+    title: "Fruchterman–Reingold — uniform spacing",
+    onClick: function (g) {
+      g.setNodes(nodesWithoutPositions());
+      g.setLayout({ name: "fr", iterations: 250, seed: 9, gravity: 1.0, width: 800, height: 600 });
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "fr" || n === "fruchterman-reingold" || n === "fruchtermanReingold"; },
+  });
 
   // ----- Info pane -------------------------------------------------------
 

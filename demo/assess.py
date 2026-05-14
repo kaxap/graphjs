@@ -414,6 +414,219 @@ def run_suite(engine: str) -> int:
             str(override),
         )
 
+        # --- Fruchterman–Reingold layout ---------------------------------
+        # Same property tests as FA2: API surface, determinism with seed,
+        # clustering behavior, robustness to zero edges, position overrides.
+        print("\nFruchterman–Reingold layout:")
+        report.add(
+            "Graph.layouts.fruchtermanReingold exposed",
+            page.evaluate("typeof Graph.layouts.fruchtermanReingold === 'function'"),
+        )
+        # Both name aliases should resolve to the same function.
+        report.add(
+            "FR aliases 'fr' / 'fruchterman-reingold' resolve",
+            page.evaluate(
+                """() => {
+                    const el = document.createElement('div');
+                    el.style.width='400px'; el.style.height='300px';
+                    document.body.appendChild(el);
+                    let ok = true;
+                    for (const name of ['fr', 'fruchterman-reingold', 'fruchtermanReingold']) {
+                        const g = new Graph(el, {
+                            nodes:[{id:'a'},{id:'b'}],
+                            edges:[{id:'e',source:'a',target:'b'}],
+                            layout: name,
+                            layoutOptions: { iterations: 20, seed: 1 },
+                        });
+                        if (!g.getNodePosition('a') || !g.getNodePosition('b')) ok = false;
+                        if (g.getLayoutName() !== name) ok = false;
+                        g.destroy();
+                    }
+                    el.remove();
+                    return ok;
+                }"""
+            ),
+        )
+
+        # Clustering: triangle + isolated node — triangle members closer.
+        fr_clust = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width='600px'; el.style.height='400px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes:[{id:'a'},{id:'b'},{id:'c'},{id:'d'}],
+                    edges:[{id:'e1',source:'a',target:'b'},
+                           {id:'e2',source:'b',target:'c'},
+                           {id:'e3',source:'a',target:'c'}],
+                    layout: "fr",
+                    layoutOptions: { iterations: 150, seed: 42, gravity: 0.1 },
+                });
+                const pa = g.getNodePosition('a'), pb = g.getNodePosition('b');
+                const pc = g.getNodePosition('c'), pd = g.getNodePosition('d');
+                g.destroy(); el.remove();
+                return { pa, pb, pc, pd };
+            }"""
+        )
+        def dist(p, q): return ((p["x"]-q["x"])**2 + (p["y"]-q["y"])**2) ** 0.5
+        pa, pb, pc, pd = fr_clust["pa"], fr_clust["pb"], fr_clust["pc"], fr_clust["pd"]
+        tri_max = max(dist(pa, pb), dist(pb, pc), dist(pa, pc))
+        iso_min = min(dist(pa, pd), dist(pb, pd), dist(pc, pd))
+        report.add(
+            "FR places triangle members closer than the isolated node",
+            tri_max < iso_min,
+            f"triangle_max={tri_max:.1f} < to_isolated_min={iso_min:.1f}",
+        )
+
+        # Determinism with seed
+        det_fr = page.evaluate(
+            """() => {
+                const nodes = [{id:'a'},{id:'b'},{id:'c'},{id:'d'},{id:'e'}];
+                const edges = [{id:'1',source:'a',target:'b'},
+                               {id:'2',source:'c',target:'d'},
+                               {id:'3',source:'d',target:'e'}];
+                const opts = { iterations: 80, seed: 11, nodeWidth: 100, nodeHeight: 40 };
+                const r1 = Graph.layouts.fruchtermanReingold(nodes, edges, opts);
+                const r2 = Graph.layouts.fruchtermanReingold(nodes, edges, opts);
+                let maxDelta = 0;
+                for (const id in r1.positions) {
+                    const a = r1.positions[id], b = r2.positions[id];
+                    maxDelta = Math.max(maxDelta, Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+                }
+                return { maxDelta };
+            }"""
+        )
+        report.add(
+            "FR is deterministic with the same seed",
+            det_fr["maxDelta"] < 1e-6,
+            f"maxDelta={det_fr['maxDelta']:.2e}",
+        )
+
+        # Two-cluster (barbell) — clusters should physically separate.
+        fr_bar = page.evaluate(
+            """() => {
+                const nodes = [
+                  {id:'a1'},{id:'a2'},{id:'a3'},
+                  {id:'b1'},{id:'b2'},{id:'b3'},
+                ];
+                const edges = [
+                  {id:'1',source:'a1',target:'a2'},
+                  {id:'2',source:'a2',target:'a3'},
+                  {id:'3',source:'a1',target:'a3'},
+                  {id:'4',source:'b1',target:'b2'},
+                  {id:'5',source:'b2',target:'b3'},
+                  {id:'6',source:'b1',target:'b3'},
+                  {id:'7',source:'a1',target:'b1'},
+                ];
+                const r = Graph.layouts.fruchtermanReingold(nodes, edges, {
+                    iterations: 250, seed: 1, nodeWidth: 80, nodeHeight: 30,
+                });
+                return r.positions;
+            }"""
+        )
+        clA = [fr_bar["a1"], fr_bar["a2"], fr_bar["a3"]]
+        clB = [fr_bar["b1"], fr_bar["b2"], fr_bar["b3"]]
+        within = sum(dist(clA[i], clA[j]) for i in range(3) for j in range(i + 1, 3))
+        within += sum(dist(clB[i], clB[j]) for i in range(3) for j in range(i + 1, 3))
+        within /= 6
+        across = sum(dist(a, b) for a in clA for b in clB) / 9
+        report.add(
+            "FR separates two clusters connected by one bridge",
+            across > within * 1.4,
+            f"across={across:.1f} vs within={within:.1f} (ratio {across / max(within, 1e-9):.2f})",
+        )
+
+        # Empty edges
+        empty_fr = page.evaluate(
+            """() => {
+                try {
+                    const r = Graph.layouts.fruchtermanReingold(
+                        [{id:'a'},{id:'b'},{id:'c'}], [],
+                        { iterations: 30, seed: 1 }
+                    );
+                    return { ok: true, count: Object.keys(r.positions).length };
+                } catch (e) { return { ok: false, error: String(e) }; }
+            }"""
+        )
+        report.add(
+            "FR handles a graph with zero edges",
+            empty_fr["ok"] and empty_fr["count"] == 3,
+            str(empty_fr),
+        )
+
+        # Object form
+        obj_fr = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width='400px'; el.style.height='300px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes:[{id:'a'},{id:'b'}],
+                    edges:[{id:'e',source:'a',target:'b'}],
+                    layout: { name: "fr", iterations: 20, seed: 5, k: 150 },
+                });
+                const ok = g.getNodePosition('a') != null && g.getNodePosition('b') != null;
+                g.destroy(); el.remove();
+                return ok;
+            }"""
+        )
+        report.add("constructor accepts layout: { name: 'fr', ... } object form", obj_fr)
+
+        # position override honored
+        pin_fr = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width='400px'; el.style.height='300px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes:[
+                      { id:'pinned', position:{x:777,y:333} },
+                      { id:'free' },
+                    ],
+                    edges:[{id:'e',source:'pinned',target:'free'}],
+                    layout: "fr",
+                    layoutOptions: { iterations: 20, seed: 3 },
+                });
+                const p = g.getNodePosition('pinned');
+                g.destroy(); el.remove();
+                return p;
+            }"""
+        )
+        report.add(
+            "node.position pins a node even under FR layout",
+            pin_fr["x"] == 777 and pin_fr["y"] == 333,
+            str(pin_fr),
+        )
+
+        # FR vs FA2 — both should converge on the same triangle/isolated
+        # qualitative result, but they're different algorithms. This
+        # sanity-checks that the two implementations are actually
+        # distinct (not accidentally calling the same code).
+        distinct = page.evaluate(
+            """() => {
+                const nodes = [{id:'a'},{id:'b'},{id:'c'},{id:'d'}];
+                const edges = [{id:'1',source:'a',target:'b'},
+                               {id:'2',source:'b',target:'c'},
+                               {id:'3',source:'a',target:'c'}];
+                const opts = { iterations: 100, seed: 42, nodeWidth: 100, nodeHeight: 40 };
+                const fa = Graph.layouts.forceatlas2(nodes, edges, opts);
+                const fr = Graph.layouts.fruchtermanReingold(nodes, edges, opts);
+                let totalDelta = 0;
+                for (const id in fa.positions) {
+                    totalDelta += Math.hypot(
+                        fa.positions[id].x - fr.positions[id].x,
+                        fa.positions[id].y - fr.positions[id].y
+                    );
+                }
+                return totalDelta;
+            }"""
+        )
+        report.add(
+            "FA2 and FR produce visually distinct layouts",
+            distinct > 1.0,  # very loose — they only need to disagree at all
+            f"totalDelta={distinct:.1f}px summed across all nodes",
+        )
+
         # --- Lifecycle ---------------------------------------------------
         print("\nLifecycle:")
         cleaned = page.evaluate(

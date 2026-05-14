@@ -143,6 +143,16 @@
     },
     pressed: function (g) { var n = g.getLayoutName(); return n === "forceatlas2" || n === "fa2"; },
   });
+  graph.addToolbarButton({
+    id: "lay-fr", label: "FR",
+    title: "Fruchterman–Reingold — slower at 1000 nodes",
+    onClick: function (g) {
+      var t0 = performance.now();
+      g.setLayout({ name: "fr", iterations: 60, seed: 1, gravity: 0.3, width: 6000, height: 6000 });
+      console.log("FR layout (1000 nodes / 3000 edges):", (performance.now() - t0).toFixed(0), "ms");
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "fr" || n === "fruchterman-reingold" || n === "fruchtermanReingold"; },
+  });
 
   // --- FPS meter (idle when nothing is moving) ------------------------------
   var fpsEl = document.getElementById("stat-fps");

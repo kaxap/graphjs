@@ -155,6 +155,15 @@
     },
     pressed: function (g) { return g.getLayoutName() === "forceatlas2" || g.getLayoutName() === "fa2"; },
   });
+  graph.addToolbarButton({
+    id: "lay-fr",
+    label: "FR",
+    title: "Fruchterman–Reingold force-directed layout",
+    onClick: function (g) {
+      g.setLayout({ name: "fr", iterations: 200, seed: 1, gravity: 1.0, width: 700, height: 500 });
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "fr" || n === "fruchterman-reingold" || n === "fruchtermanReingold"; },
+  });
 
   // Test hooks.
   window.__demo = {

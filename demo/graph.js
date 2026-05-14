@@ -350,6 +350,162 @@
     };
   }
 
+  // ---------- Fruchterman–Reingold layout ------------------------------
+  //
+  // The classic 1991 force-directed algorithm. Compared to FA2:
+  //   - Inverse-square REPULSION:   f_rep = k² / d
+  //   - Quadratic   ATTRACTION:     f_att = d² / k     (where d is edge length)
+  //   - All nodes equal (no degree mass)
+  //   - Simulated annealing: temperature caps per-step displacement and
+  //     decays linearly each iteration.
+  //
+  // The parameter `k` is the "ideal edge length" — usually `sqrt(area/N)`.
+  // The visual signature: roughly uniform inter-node spacing, where FA2
+  // tends toward more pronounced hubs and asymmetric clusters.
+
+  function fruchtermanReingoldLayout(nodes, edges, opts) {
+    var N = nodes.length;
+    if (N === 0) return { positions: {}, width: 0, height: 0 };
+
+    var iterations = opts.iterations != null ? opts.iterations : 200;
+    var nodeWidth  = opts.nodeWidth  || 200;
+    var nodeHeight = opts.nodeHeight || 60;
+    // Default canvas area scales with √N so the ideal edge length stays
+    // sane regardless of graph size.
+    var area       = opts.area != null ? opts.area : (Math.sqrt(N) * 250) * (Math.sqrt(N) * 250);
+    var W          = opts.width  || Math.sqrt(area);
+    var H          = opts.height || Math.sqrt(area);
+    var k          = opts.k != null ? opts.k : Math.sqrt((W * H) / Math.max(1, N));
+    var t0         = opts.temperature != null ? opts.temperature : W * 0.1;
+    var gravity    = opts.gravity != null ? opts.gravity : 0; // 0 = canonical FR
+    var preventOverlap = opts.preventOverlap === true; // off by default
+    var seed       = opts.seed != null ? opts.seed : 1;
+
+    var rand = mulberry32(seed);
+
+    var idx = {};
+    var x = new Float64Array(N);
+    var y = new Float64Array(N);
+    var dx = new Float64Array(N);
+    var dy = new Float64Array(N);
+    var radius = new Float64Array(N);
+
+    for (var i = 0; i < N; i++) {
+      var n = nodes[i];
+      idx[n.id] = i;
+      // Start scattered uniformly in [-W/2, W/2] × [-H/2, H/2].
+      x[i] = (rand() - 0.5) * W;
+      y[i] = (rand() - 0.5) * H;
+      var w = n.width || nodeWidth, h = n.height || nodeHeight;
+      radius[i] = 0.5 * Math.sqrt(w * w + h * h);
+    }
+
+    // Edge list as typed-array pairs for inner-loop speed.
+    var nEdges = edges.length;
+    var edgeS = new Int32Array(nEdges);
+    var edgeT = new Int32Array(nEdges);
+    var validEdges = 0;
+    for (var e = 0; e < nEdges; e++) {
+      var ed = edges[e];
+      var si = idx[ed.source], ti = idx[ed.target];
+      if (si == null || ti == null || si === ti) continue;
+      edgeS[validEdges] = si; edgeT[validEdges] = ti;
+      validEdges++;
+    }
+
+    var temperature = t0;
+    var cooling = t0 / iterations;
+    var k2 = k * k;
+
+    for (var iter = 0; iter < iterations; iter++) {
+      for (var z = 0; z < N; z++) { dx[z] = 0; dy[z] = 0; }
+
+      // Repulsion: O(N²), f = k²/d
+      for (var a1 = 0; a1 < N; a1++) {
+        for (var b1 = a1 + 1; b1 < N; b1++) {
+          var rx = x[a1] - x[b1];
+          var ry = y[a1] - y[b1];
+          var d2 = rx * rx + ry * ry;
+          if (d2 < 0.01) d2 = 0.01;
+          var d = Math.sqrt(d2);
+          var f = k2 / d;
+          if (preventOverlap) {
+            var overlap = radius[a1] + radius[b1] - d;
+            if (overlap > 0) f += overlap * k;
+          }
+          var fx = (rx / d) * f, fy = (ry / d) * f;
+          dx[a1] += fx; dy[a1] += fy;
+          dx[b1] -= fx; dy[b1] -= fy;
+        }
+      }
+
+      // Attraction along edges: f = d²/k
+      for (var ei = 0; ei < validEdges; ei++) {
+        var s = edgeS[ei], tt = edgeT[ei];
+        var ax = x[s] - x[tt];
+        var ay = y[s] - y[tt];
+        var ad2 = ax * ax + ay * ay;
+        if (ad2 < 0.01) ad2 = 0.01;
+        var ad = Math.sqrt(ad2);
+        var af = ad2 / k;
+        var afx = (ax / ad) * af, afy = (ay / ad) * af;
+        dx[s] -= afx; dy[s] -= afy;
+        dx[tt] += afx; dy[tt] += afy;
+      }
+
+      // Optional gravity (off by default — vanilla FR has none, but it's
+      // useful for graphs with disconnected components that would
+      // otherwise drift apart indefinitely).
+      if (gravity > 0) {
+        for (var gi = 0; gi < N; gi++) {
+          var gd = Math.sqrt(x[gi] * x[gi] + y[gi] * y[gi]);
+          if (gd < 0.01) gd = 0.01;
+          dx[gi] -= (x[gi] / gd) * gravity * k;
+          dy[gi] -= (y[gi] / gd) * gravity * k;
+        }
+      }
+
+      // Apply displacement, capped by current temperature.
+      for (var u = 0; u < N; u++) {
+        var disp = Math.sqrt(dx[u] * dx[u] + dy[u] * dy[u]);
+        if (disp > 0) {
+          var capped = Math.min(disp, temperature);
+          x[u] += (dx[u] / disp) * capped;
+          y[u] += (dy[u] / disp) * capped;
+        }
+      }
+
+      // Cool down linearly.
+      temperature = Math.max(0.01, temperature - cooling);
+    }
+
+    // Pack into the library's position format with padding + positive
+    // quadrant translation.
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (var p1 = 0; p1 < N; p1++) {
+      if (x[p1] < minX) minX = x[p1];
+      if (y[p1] < minY) minY = y[p1];
+      if (x[p1] > maxX) maxX = x[p1];
+      if (y[p1] > maxY) maxY = y[p1];
+    }
+    var pad = 60;
+    var positions = {};
+    for (var q = 0; q < N; q++) {
+      var n2 = nodes[q];
+      var w2 = n2.width || nodeWidth, h2 = n2.height || nodeHeight;
+      positions[n2.id] = {
+        x: x[q] - minX + pad,
+        y: y[q] - minY + pad,
+        w: w2, h: h2,
+      };
+    }
+    return {
+      positions: positions,
+      width:  (maxX - minX) + 2 * pad + nodeWidth,
+      height: (maxY - minY) + 2 * pad + nodeHeight,
+    };
+  }
+
   // Registry of built-in named layouts. Custom layouts (passed as
   // functions) are still supported and take precedence.
   var LAYOUTS = {
@@ -357,6 +513,9 @@
     hierarchical: hierarchicalLayout,
     forceatlas2: forceAtlas2Layout,
     fa2: forceAtlas2Layout,
+    "fruchterman-reingold": fruchtermanReingoldLayout,
+    fruchtermanReingold:    fruchtermanReingoldLayout,
+    fr: fruchtermanReingoldLayout,
   };
 
   // ---------- Edge geometry ---------------------------------------------
@@ -557,6 +716,7 @@
   Graph.layouts = {
     hierarchical: hierarchicalLayout,
     forceatlas2: forceAtlas2Layout,
+    fruchtermanReingold: fruchtermanReingoldLayout,
   };
 
   // ----- DOM scaffolding ------------------------------------------------
