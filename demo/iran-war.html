@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Iran–Israel–US 2025 conflict — actor relationships</title>
+    <link rel="stylesheet" href="graph.css?v=5" />
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      /* ---- Actor cards ---- */
+      .gv-node.actor {
+        padding: 8px 12px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 2px;
+      }
+      .actor__name {
+        font-weight: 700;
+        font-size: 13px;
+        color: #0f172a;
+        line-height: 1.15;
+      }
+      .actor__role {
+        font-size: 10px;
+        color: #64748b;
+        line-height: 1.1;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+      /* Belligerent — bold border + faint fill. Iran red, Israel/US blue. */
+      .gv-node.kind-belligerent {
+        border-width: 2px;
+        font-weight: 700;
+      }
+      .gv-node.kind-belligerent.side-iran {
+        border-color: #b91c1c;
+        background: #fef2f2;
+      }
+      .gv-node.kind-belligerent.side-allied {
+        border-color: #1d4ed8;
+        background: #eff6ff;
+      }
+      /* Non-state actor — italicized, dashed border, red-tinted */
+      .gv-node.kind-proxy {
+        border-color: #dc2626;
+        border-style: dashed;
+        background: #fff7f7;
+      }
+      .gv-node.kind-proxy .actor__name { font-style: italic; }
+      /* Diplomatic / mediator */
+      .gv-node.kind-diplomat {
+        border-color: #059669;
+        background: #f0fdf4;
+      }
+      /* International body */
+      .gv-node.kind-international {
+        border-color: #7c3aed;
+        background: #faf5ff;
+      }
+      /* Restrained — UK */
+      .gv-node.kind-restrained {
+        border-color: #64748b;
+        border-style: dashed;
+        background: #f8fafc;
+      }
+
+      /* ---- Side panels ---- */
+      .topbar { justify-content: space-between; }
+      .topbar__crumbs a { color: #2563eb; text-decoration: none; margin-right: 14px; }
+
+      .legend-pane {
+        position: absolute;
+        bottom: 12px; left: 12px;
+        z-index: 6;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        box-shadow: 0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.06);
+        font-size: 11px;
+        max-width: 320px;
+      }
+      .legend-pane h3 {
+        margin: 0 0 6px 0;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #64748b;
+      }
+      .legend-pane h3 + h3 { margin-top: 10px; }
+      .legend-pane .row { display: flex; align-items: center; gap: 10px; margin: 3px 0; color: #334155; }
+      .legend-pane .swatch {
+        display: inline-block;
+        width: 28px; height: 0;
+        border-bottom-width: 3px;
+        border-bottom-style: solid;
+        flex: 0 0 28px;
+      }
+      .legend-pane .source-note {
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid #f1f5f9;
+        color: #64748b;
+        line-height: 1.4;
+      }
+      .legend-pane .disclaimer {
+        margin-top: 8px;
+        padding: 8px 10px;
+        background: #fef9c3;
+        border: 1px solid #fde68a;
+        border-radius: 6px;
+        color: #713f12;
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+
+      .info-pane {
+        position: absolute;
+        top: 12px; right: 12px;
+        z-index: 6;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px 14px;
+        box-shadow: 0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.06);
+        font-size: 12px;
+        width: 300px;
+        color: #334155;
+      }
+      .info-pane h2 { margin: 0 0 6px 0; font-size: 13px; }
+      .info-pane p { margin: 6px 0; line-height: 1.45; }
+      .info-pane .muted { color: #64748b; font-size: 11px; }
+      .info-pane .pill {
+        display: inline-block;
+        font-size: 10px; padding: 2px 8px; border-radius: 999px;
+        background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__title">
+        <span class="topbar__logo">◆</span>
+        <span>Iran–Israel–US June 2025 — actor relationships</span>
+      </div>
+      <div class="topbar__crumbs">
+        <a href="index.html">← lineage demo</a>
+        <a href="tribes.html">Kazakh tribes</a>
+        <a href="large.html">stress test →</a>
+      </div>
+    </header>
+
+    <main id="graph" class="graph-host">
+      <aside class="legend-pane">
+        <h3>Edge categories</h3>
+        <div class="row"><span class="swatch" style="border-bottom-color:#dc2626; border-bottom-width:3px"></span>Direct strikes / war</div>
+        <div class="row"><span class="swatch" style="border-bottom-color:#dc2626; border-bottom-style:dashed"></span>Proxy attack</div>
+        <div class="row"><span class="swatch" style="border-bottom-color:#1d4ed8"></span>Alliance / military support</div>
+        <div class="row"><span class="swatch" style="border-bottom-color:#ea580c"></span>Iran support network</div>
+        <div class="row"><span class="swatch" style="border-bottom-color:#059669"></span>Mediation / diplomacy</div>
+        <div class="row"><span class="swatch" style="border-bottom-color:#64748b"></span>Hosting / affected state</div>
+        <div class="row"><span class="swatch" style="border-bottom-color:#94a3b8; border-bottom-style:dashed"></span>Restraint / non-participation</div>
+
+        <h3>Actor types</h3>
+        <div class="row"><span class="pill" style="background:#fef2f2;color:#b91c1c">Iran</span><span class="pill" style="background:#eff6ff;color:#1d4ed8">Israel / US</span></div>
+        <div class="row"><span class="pill" style="background:#fff7f7;color:#dc2626">Iran-aligned proxies</span></div>
+        <div class="row"><span class="pill" style="background:#f0fdf4;color:#059669">Mediators</span></div>
+        <div class="row"><span class="pill" style="background:#faf5ff;color:#7c3aed">International body</span></div>
+
+        <div class="source-note">
+          Based on the user-supplied graphviz outline of the
+          June 2025 Israel–Iran–US escalation, surrounding alliances,
+          proxy attacks, and ceasefire diplomacy.
+        </div>
+        <div class="disclaimer">
+          <strong>Demo only.</strong> Relationships are simplified for
+          visualization. Edge labels paraphrase the input graph and are
+          not a substitute for primary reporting.
+        </div>
+      </aside>
+
+      <aside class="info-pane" id="info">
+        <h2>Click an actor or edge</h2>
+        <p class="muted">Click any actor to see its connections.
+          Click an edge to read what it represents.</p>
+        <p class="muted">The library's hierarchical layout doesn't
+          handle cycles, so positions are supplied statically. Backward
+          edges (e.g. Israel→Iran when Israel sits to the right) arc
+          over the row.</p>
+      </aside>
+    </main>
+
+    <script src="graph.js?v=5"></script>
+    <script src="iran-war.js"></script>
+  </body>
+</html>

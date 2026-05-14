@@ -233,7 +233,47 @@ It's a good showcase for how the same library renders three completely
 different kinds of graphs (process lineage, stress test, bipartite
 genetic relationships) with only a `renderNode` and `edgeStyle` change.
 
-### 3. Stress test — `demo/large.html`
+### 3. Iran–Israel–US 2025 — `demo/iran-war.html`
+
+A conflict-graph view of the June 2025 Israel–Iran–US escalation,
+adapted from a user-supplied Graphviz outline of the actors,
+strikes, proxy attacks, alliances, and ceasefire diplomacy.
+
+![Iran 2025 actor graph](demo/screenshots/chromium/iran-01.png)
+
+The demo uses static `node.position` overrides to lay out three
+columns: Iran and its support network on the left, mediators and
+international bodies in the middle, Israel and the United States on
+the right. Edges are categorized — direct strikes, alliance, proxy
+attacks, mediation, support network, hosting, restraint — and the
+toolbar gates each category on or off.
+
+Click any actor to see its full set of incoming and outgoing
+relationships. Each entry is tagged with the matching category pill:
+
+![Iran selected — full relationship breakdown](demo/screenshots/chromium/iran-02-iran.png)
+
+Toggling off the diplomatic and support categories leaves the
+**kinetic** layer — direct strikes, alliance, and proxy attacks:
+
+![Just the kinetic graph](demo/screenshots/chromium/iran-04-kinetic.png)
+
+The interesting library feature exercised here is **backward-edge
+routing**: a graph this cyclic (Israel ↔ Iran, US ↔ Iran) breaks
+hierarchical layout, so the demo supplies static positions and lets
+the library detect when a target sits behind its source in the flow
+axis. The library then anchors that edge on the *top* of both nodes
+and arcs the bezier above the row instead of routing it through
+off-screen control points. You can see it in the `Israel → Iran`
+strike edge — it curves over the top of the row while `Iran → Israel`
+goes through the middle, keeping the bidirectional pair visually
+distinct.
+
+> ⚠️ The relationship labels in this demo paraphrase the user-supplied
+> graph and are not a substitute for primary reporting. It's a
+> visualization exercise, not analysis.
+
+### 4. Stress test — `demo/large.html`
 
 The same library, now with **1000 nodes and 3000 edges** in a 10-layer
 DAG, generated procedurally:
@@ -599,6 +639,8 @@ demo/                 Runnable demos. Library files are copied here
   styles.css            Page chrome + lineage-card theming.
   tribes.html           Bipartite demo: Kazakh tribes ↔ Y-DNA haplogroups.
   tribes.js             Data + bipartite renderNode/edgeStyle.
+  iran-war.html         Conflict-graph demo: June 2025 Israel-Iran-US.
+  iran-war.js           Static-positioned cyclic graph + category filters.
   large.html            1000-node stress demo.
   large.js              Procedural graph generator.
   graph.js, graph.css   Copies of lib/. Refresh with `cp lib/graph.* demo/`.
