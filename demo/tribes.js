@@ -326,6 +326,34 @@
     },
     pressed: function (g) { var n = g.getLayoutName(); return n === "yh" || n === "yifan-hu" || n === "yifanHu"; },
   });
+  graph.addToolbarButton({
+    id: "lay-oo", label: "OO",
+    title: "OpenOrd — staged force-directed, wide cluster separation",
+    onClick: function (g) {
+      g.setNodes(nodesWithoutPositions());
+      // For small graphs (~10 nodes), the default OpenOrd liquid /
+      // expansion stages with their 500-px random jumps blow up the
+      // layout. Substitute a tamer schedule.
+      // For OpenOrd in this dense multigraph, K controls the natural
+      // length of edges (attracted-pair equilibrium ≈ K). Cards are
+      // 200 px wide, so K=250 keeps connected neighbors from
+      // overlapping. Gravity = 2 keeps the total extent reasonable
+      // since unconnected equilibrium ≈ (N-1)·K/gravity = 10·250/2 ≈
+      // 1250 px. Tames stages with no random jumps for an 11-node graph.
+      g.setLayout({
+        name: "openord",
+        iterations: 400, seed: 5, gravity: 2.0, K: 250,
+        preventOverlap: true,
+        stages: [
+          { name: "expansion", frac: 0.30, tempK: 0.4,  attract: 0.8, jump: 0 },
+          { name: "cooldown",  frac: 0.30, tempK: 0.15, attract: 1.5, jump: 0 },
+          { name: "crunch",    frac: 0.20, tempK: 0.06, attract: 2.0, jump: 0 },
+          { name: "simmer",    frac: 0.20, tempK: 0.02, attract: 2.5, jump: 0 },
+        ],
+      });
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "oo" || n === "openord" || n === "openOrd"; },
+  });
 
   // ---- Info pane ------------------------------------------------------
 

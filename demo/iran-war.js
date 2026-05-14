@@ -265,6 +265,15 @@
     },
     pressed: function (g) { var n = g.getLayoutName(); return n === "yh" || n === "yifan-hu" || n === "yifanHu"; },
   });
+  graph.addToolbarButton({
+    id: "lay-oo", label: "OO",
+    title: "OpenOrd — staged force-directed",
+    onClick: function (g) {
+      g.setNodes(nodesWithoutPositions());
+      g.setLayout({ name: "openord", iterations: 500, seed: 9, gravity: 0.04, K: 450 });
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "oo" || n === "openord" || n === "openOrd"; },
+  });
 
   // ----- Info pane -------------------------------------------------------
 

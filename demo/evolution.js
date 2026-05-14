@@ -304,6 +304,14 @@
     },
     pressed: function (g) { var n = g.getLayoutName(); return n === "yh" || n === "yifan-hu" || n === "yifanHu"; },
   });
+  graph.addToolbarButton({
+    id: "lay-oo", label: "OO",
+    title: "OpenOrd — staged, wide cluster separation",
+    onClick: function (g) {
+      g.setLayout({ name: "openord", iterations: 500, seed: 3, gravity: 0.2, K: 230 });
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "oo" || n === "openord" || n === "openOrd"; },
+  });
 
   // ----- Info pane on click --------------------------------------------
 

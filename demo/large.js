@@ -163,6 +163,17 @@
     },
     pressed: function (g) { var n = g.getLayoutName(); return n === "yh" || n === "yifan-hu" || n === "yifanHu"; },
   });
+  graph.addToolbarButton({
+    id: "lay-oo", label: "OO",
+    title: "OpenOrd — staged force-directed; slow but characteristic blob separation",
+    onClick: function (g) {
+      var t0 = performance.now();
+      // Lower iteration count for 1000 nodes (O(N²) × stages = slow).
+      g.setLayout({ name: "openord", iterations: 100, seed: 1, gravity: 0.15, K: 500 });
+      console.log("OpenOrd layout (1000 nodes / 3000 edges):", (performance.now() - t0).toFixed(0), "ms");
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "oo" || n === "openord" || n === "openOrd"; },
+  });
 
   // --- FPS meter (idle when nothing is moving) ------------------------------
   var fpsEl = document.getElementById("stat-fps");

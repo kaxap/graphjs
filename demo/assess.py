@@ -914,6 +914,295 @@ def run_suite(engine: str) -> int:
             f"YH↔FA2 delta={distinct_yh['yhVsFa']:.1f}, YH↔FR delta={distinct_yh['yhVsFr']:.1f}",
         )
 
+        # --- OpenOrd layout ----------------------------------------------
+        # Same property tests as the other force-directed layouts, plus
+        # one OpenOrd-specific test for the stage-aware behavior (early
+        # stages should produce wider scatter than the converged final
+        # stage with its stronger attraction).
+        print("\nOpenOrd layout:")
+        report.add(
+            "Graph.layouts.openOrd exposed",
+            page.evaluate("typeof Graph.layouts.openOrd === 'function'"),
+        )
+        report.add(
+            "OpenOrd aliases 'oo' / 'openord' / 'openOrd' resolve",
+            page.evaluate(
+                """() => {
+                    const el = document.createElement('div');
+                    el.style.width='400px'; el.style.height='300px';
+                    document.body.appendChild(el);
+                    let ok = true;
+                    for (const name of ['oo', 'openord', 'openOrd']) {
+                        const g = new Graph(el, {
+                            nodes:[{id:'a'},{id:'b'}],
+                            edges:[{id:'e',source:'a',target:'b'}],
+                            layout: name,
+                            layoutOptions: { iterations: 30, seed: 1 },
+                        });
+                        if (!g.getNodePosition('a') || !g.getNodePosition('b')) ok = false;
+                        if (g.getLayoutName() !== name) ok = false;
+                        g.destroy();
+                    }
+                    el.remove();
+                    return ok;
+                }"""
+            ),
+        )
+
+        # Clustering on triangle + isolated.
+        oo_clust = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width='600px'; el.style.height='400px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes:[{id:'a'},{id:'b'},{id:'c'},{id:'d'}],
+                    edges:[{id:'e1',source:'a',target:'b'},
+                           {id:'e2',source:'b',target:'c'},
+                           {id:'e3',source:'a',target:'c'}],
+                    layout: "openord",
+                    layoutOptions: { iterations: 400, seed: 42, gravity: 0.1 },
+                });
+                const pa = g.getNodePosition('a'), pb = g.getNodePosition('b');
+                const pc = g.getNodePosition('c'), pd = g.getNodePosition('d');
+                g.destroy(); el.remove();
+                return { pa, pb, pc, pd };
+            }"""
+        )
+        pa, pb, pc, pd = oo_clust["pa"], oo_clust["pb"], oo_clust["pc"], oo_clust["pd"]
+        tri_max = max(dist(pa, pb), dist(pb, pc), dist(pa, pc))
+        iso_min = min(dist(pa, pd), dist(pb, pd), dist(pc, pd))
+        report.add(
+            "OpenOrd places triangle members closer than the isolated node",
+            tri_max < iso_min,
+            f"triangle_max={tri_max:.1f} < to_isolated_min={iso_min:.1f}",
+        )
+
+        # Determinism — OpenOrd has random jumps in early stages, so this
+        # is a strong test that the PRNG seeding is plumbed correctly.
+        det_oo = page.evaluate(
+            """() => {
+                const nodes = [{id:'a'},{id:'b'},{id:'c'},{id:'d'},{id:'e'}];
+                const edges = [{id:'1',source:'a',target:'b'},
+                               {id:'2',source:'c',target:'d'},
+                               {id:'3',source:'d',target:'e'}];
+                const opts = { iterations: 200, seed: 23, nodeWidth: 100, nodeHeight: 40 };
+                const r1 = Graph.layouts.openOrd(nodes, edges, opts);
+                const r2 = Graph.layouts.openOrd(nodes, edges, opts);
+                let maxDelta = 0;
+                for (const id in r1.positions) {
+                    const a = r1.positions[id], b = r2.positions[id];
+                    maxDelta = Math.max(maxDelta, Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+                }
+                return { maxDelta };
+            }"""
+        )
+        report.add(
+            "OpenOrd is deterministic with the same seed (despite random jumps)",
+            det_oo["maxDelta"] < 1e-6,
+            f"maxDelta={det_oo['maxDelta']:.2e}",
+        )
+
+        # Two-cluster separation — OpenOrd is famous for this; ratio
+        # should be at least as good as FR.
+        oo_bar = page.evaluate(
+            """() => {
+                const nodes = [
+                  {id:'a1'},{id:'a2'},{id:'a3'},
+                  {id:'b1'},{id:'b2'},{id:'b3'},
+                ];
+                const edges = [
+                  {id:'1',source:'a1',target:'a2'},
+                  {id:'2',source:'a2',target:'a3'},
+                  {id:'3',source:'a1',target:'a3'},
+                  {id:'4',source:'b1',target:'b2'},
+                  {id:'5',source:'b2',target:'b3'},
+                  {id:'6',source:'b1',target:'b3'},
+                  {id:'7',source:'a1',target:'b1'},
+                ];
+                const r = Graph.layouts.openOrd(nodes, edges, {
+                    iterations: 500, seed: 1, nodeWidth: 80, nodeHeight: 30,
+                });
+                return r.positions;
+            }"""
+        )
+        clA = [oo_bar["a1"], oo_bar["a2"], oo_bar["a3"]]
+        clB = [oo_bar["b1"], oo_bar["b2"], oo_bar["b3"]]
+        within = sum(dist(clA[i], clA[j]) for i in range(3) for j in range(i + 1, 3))
+        within += sum(dist(clB[i], clB[j]) for i in range(3) for j in range(i + 1, 3))
+        within /= 6
+        across = sum(dist(a, b) for a in clA for b in clB) / 9
+        report.add(
+            "OpenOrd separates two clusters connected by one bridge",
+            across > within * 1.4,
+            f"across={across:.1f} vs within={within:.1f} (ratio {across / max(within, 1e-9):.2f})",
+        )
+
+        # Empty edges
+        empty_oo = page.evaluate(
+            """() => {
+                try {
+                    const r = Graph.layouts.openOrd(
+                        [{id:'a'},{id:'b'},{id:'c'}], [],
+                        { iterations: 50, seed: 1 }
+                    );
+                    return { ok: true, count: Object.keys(r.positions).length };
+                } catch (e) { return { ok: false, error: String(e) }; }
+            }"""
+        )
+        report.add(
+            "OpenOrd handles a graph with zero edges",
+            empty_oo["ok"] and empty_oo["count"] == 3,
+            str(empty_oo),
+        )
+
+        # Object form
+        obj_oo = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width='400px'; el.style.height='300px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes:[{id:'a'},{id:'b'}],
+                    edges:[{id:'e',source:'a',target:'b'}],
+                    layout: { name: "openord", iterations: 50, seed: 5, K: 100 },
+                });
+                const ok = g.getNodePosition('a') != null && g.getNodePosition('b') != null;
+                g.destroy(); el.remove();
+                return ok;
+            }"""
+        )
+        report.add("constructor accepts layout: { name: 'openord', ... } object form", obj_oo)
+
+        # Position override
+        pin_oo = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width='400px'; el.style.height='300px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes:[
+                      { id:'pinned', position:{x:444,y:888} },
+                      { id:'free' },
+                    ],
+                    edges:[{id:'e',source:'pinned',target:'free'}],
+                    layout: "openord",
+                    layoutOptions: { iterations: 50, seed: 3 },
+                });
+                const p = g.getNodePosition('pinned');
+                g.destroy(); el.remove();
+                return p;
+            }"""
+        )
+        report.add(
+            "node.position pins a node even under OpenOrd layout",
+            pin_oo["x"] == 444 and pin_oo["y"] == 888,
+            str(pin_oo),
+        )
+
+        # OpenOrd-specific: custom stages override. Replace the default
+        # 5-stage schedule with a 1-stage "everything is simmer" schedule
+        # and verify the layout is significantly different (less random
+        # mixing, tighter from the start).
+        stage_override = page.evaluate(
+            """() => {
+                const nodes = [{id:'a'},{id:'b'},{id:'c'},{id:'d'},{id:'e'},{id:'f'}];
+                const edges = [{id:'1',source:'a',target:'b'},
+                               {id:'2',source:'c',target:'d'},
+                               {id:'3',source:'e',target:'f'}];
+                const optsBase = { iterations: 200, seed: 99, nodeWidth: 100, nodeHeight: 40 };
+                // Default 5-stage schedule.
+                const defaults = Graph.layouts.openOrd(nodes, edges, optsBase);
+                // Single-stage "simmer-only" schedule — no random mixing.
+                const simmer = Graph.layouts.openOrd(nodes, edges, Object.assign({}, optsBase, {
+                    stages: [{ name: "only", frac: 1.0, tempK: 0.05, attract: 2.0, jump: 0 }],
+                }));
+                // Total positional difference must be > 0 — otherwise stages aren't taking effect.
+                let totalDelta = 0;
+                for (const id in defaults.positions) {
+                    totalDelta += Math.hypot(
+                        defaults.positions[id].x - simmer.positions[id].x,
+                        defaults.positions[id].y - simmer.positions[id].y
+                    );
+                }
+                return totalDelta;
+            }"""
+        )
+        report.add(
+            "OpenOrd `stages` override produces a different layout",
+            stage_override > 10.0,
+            f"defaults↔simmer-only delta={stage_override:.1f}px",
+        )
+
+        # Random-jump effect: high jump probability in stages should
+        # make the layout less converged than zero-jump. Soft test —
+        # we just check that disabling jumps changes the output.
+        no_jump = page.evaluate(
+            """() => {
+                const nodes = [{id:'a'},{id:'b'},{id:'c'},{id:'d'}];
+                const edges = [{id:'1',source:'a',target:'b'},
+                               {id:'2',source:'b',target:'c'},
+                               {id:'3',source:'a',target:'c'}];
+                const opts = { iterations: 100, seed: 7, nodeWidth: 80, nodeHeight: 30 };
+                const withJumps = Graph.layouts.openOrd(nodes, edges, opts);
+                const noJumps = Graph.layouts.openOrd(nodes, edges, Object.assign({}, opts, {
+                    stages: [
+                      { name: "liquid",    frac: 0.25, tempK: 2.0,  attract: 0.2, jump: 0 },
+                      { name: "expansion", frac: 0.25, tempK: 1.5,  attract: 0.5, jump: 0 },
+                      { name: "cooldown",  frac: 0.25, tempK: 0.6,  attract: 1.0, jump: 0 },
+                      { name: "crunch",    frac: 0.10, tempK: 0.2,  attract: 1.5, jump: 0 },
+                      { name: "simmer",    frac: 0.15, tempK: 0.05, attract: 2.0, jump: 0 },
+                    ],
+                }));
+                let delta = 0;
+                for (const id in withJumps.positions) {
+                    delta += Math.hypot(
+                        withJumps.positions[id].x - noJumps.positions[id].x,
+                        withJumps.positions[id].y - noJumps.positions[id].y
+                    );
+                }
+                return delta;
+            }"""
+        )
+        report.add(
+            "OpenOrd random jumps affect the layout",
+            no_jump > 1.0,
+            f"with-jumps ↔ no-jumps delta={no_jump:.1f}px",
+        )
+
+        # OpenOrd is genuinely a different code path
+        distinct_oo = page.evaluate(
+            """() => {
+                const nodes = [{id:'a'},{id:'b'},{id:'c'},{id:'d'}];
+                const edges = [{id:'1',source:'a',target:'b'},
+                               {id:'2',source:'b',target:'c'},
+                               {id:'3',source:'a',target:'c'}];
+                const opts = { iterations: 100, seed: 42, nodeWidth: 100, nodeHeight: 40 };
+                const fa = Graph.layouts.forceatlas2(nodes, edges, opts);
+                const fr = Graph.layouts.fruchtermanReingold(nodes, edges, opts);
+                const yh = Graph.layouts.yifanHu(nodes, edges, opts);
+                const oo = Graph.layouts.openOrd(nodes, edges, opts);
+                function tot(r1, r2) {
+                    let s = 0;
+                    for (const id in r1.positions) {
+                        s += Math.hypot(r1.positions[id].x - r2.positions[id].x,
+                                        r1.positions[id].y - r2.positions[id].y);
+                    }
+                    return s;
+                }
+                return {
+                    ooVsFa: tot(oo, fa),
+                    ooVsFr: tot(oo, fr),
+                    ooVsYh: tot(oo, yh),
+                };
+            }"""
+        )
+        report.add(
+            "OpenOrd produces a layout distinct from FA2, FR, and YH",
+            distinct_oo["ooVsFa"] > 1.0 and distinct_oo["ooVsFr"] > 1.0 and distinct_oo["ooVsYh"] > 1.0,
+            f"OO↔FA2={distinct_oo['ooVsFa']:.0f}, OO↔FR={distinct_oo['ooVsFr']:.0f}, OO↔YH={distinct_oo['ooVsYh']:.0f}",
+        )
+
         # --- Lifecycle ---------------------------------------------------
         print("\nLifecycle:")
         cleaned = page.evaluate(
