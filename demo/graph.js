@@ -49,7 +49,14 @@
 
     // Layout
     direction: "LR",          // "LR" | "TB"
-    layout: "auto",           // "auto" or function(nodes, edges, opts) -> { positions, width, height }
+    // "auto" / "hierarchical" / "forceatlas2" / "fa2", or
+    // { name: "forceatlas2", iterations, gravity, ... }, or a
+    // function(nodes, edges, opts) -> { positions, width, height }.
+    layout: "auto",
+    // Options object passed to a named layout (alternative to embedding
+    // them in the `layout` object form). Ignored when `layout` is itself
+    // an object with options.
+    layoutOptions: null,
     nodeWidth: 200,
     nodeHeight: 60,
     rankSeparation: 100,
@@ -140,6 +147,217 @@
 
     return { positions: positions, width: maxX, height: maxY };
   }
+
+  // ---------- ForceAtlas2 layout ---------------------------------------
+  //
+  // Adapted from Jacomy et al., "ForceAtlas2, a Continuous Graph Layout
+  // Algorithm for Handy Network Visualization" (PLoS ONE 2014). Naive
+  // O(N²) repulsion — good for up to ~1000 nodes. For larger graphs you'd
+  // want a Barnes-Hut quadtree.
+  //
+  // Key properties:
+  //   - LINEAR (not inverse-square) repulsion, scaled by node degree
+  //   - LINEAR attraction along edges (treat edges as springs at rest length 0)
+  //   - Adaptive per-frame global speed, with per-node "swinging" damping
+  //   - Optional gravity toward origin to keep disconnected components close
+  //
+  // Inputs are the same shape as hierarchicalLayout: it consumes (nodes,
+  // edges, opts) and produces { positions, width, height }. Each node's
+  // `position.w` / `.h` are filled from opts.nodeWidth / opts.nodeHeight
+  // (or per-node `node.width`/`node.height` if present).
+
+  // Tiny seeded PRNG (Mulberry32) — keeps the layout deterministic
+  // across runs when a `seed` is supplied. Used only for initial
+  // placement; the rest of the algorithm is deterministic.
+  function mulberry32(seed) {
+    var t = seed >>> 0;
+    return function () {
+      t = (t + 0x6D2B79F5) | 0;
+      var r = Math.imul(t ^ (t >>> 15), 1 | t);
+      r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+      return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function forceAtlas2Layout(nodes, edges, opts) {
+    var N = nodes.length;
+    if (N === 0) return { positions: {}, width: 0, height: 0 };
+
+    var iterations     = opts.iterations     != null ? opts.iterations     : 200;
+    var scalingRatio   = opts.scalingRatio   != null ? opts.scalingRatio   : 10;
+    var gravity        = opts.gravity        != null ? opts.gravity        : 1;
+    var slowDown       = opts.slowDown       != null ? opts.slowDown       : 1;
+    var jitterTol      = opts.jitterTolerance!= null ? opts.jitterTolerance: 1;
+    var preventOverlap = opts.preventOverlap != false; // default true
+    var nodeWidth      = opts.nodeWidth  || 200;
+    var nodeHeight     = opts.nodeHeight || 60;
+    var seed           = opts.seed != null ? opts.seed : 1;
+
+    var rand = mulberry32(seed);
+
+    // ----- Initialize ---------------------------------------------------
+    // Mass = degree + 1; degree-1 nodes get less repulsive influence so
+    // hubs naturally end up near the center.
+    var idx = {};            // id -> index
+    var mass = new Float64Array(N);
+    var x = new Float64Array(N);
+    var y = new Float64Array(N);
+    var dx = new Float64Array(N);
+    var dy = new Float64Array(N);
+    var oldDx = new Float64Array(N);
+    var oldDy = new Float64Array(N);
+    var radius = new Float64Array(N); // half-diagonal, for preventOverlap
+
+    for (var i = 0; i < N; i++) {
+      var n = nodes[i];
+      idx[n.id] = i;
+      mass[i] = 1; // bumped by degree below
+      // Spread initial points around a circle to avoid degeneracy.
+      var ang = (i / N) * 2 * Math.PI + rand() * 0.1;
+      var r0 = Math.sqrt(N) * 30 + rand() * 10;
+      x[i] = Math.cos(ang) * r0;
+      y[i] = Math.sin(ang) * r0;
+      var w = n.width  || nodeWidth;
+      var h = n.height || nodeHeight;
+      radius[i] = 0.5 * Math.sqrt(w * w + h * h);
+    }
+    // Degrees
+    var nEdges = edges.length;
+    var edgeS = new Int32Array(nEdges);
+    var edgeT = new Int32Array(nEdges);
+    var edgeW = new Float64Array(nEdges);
+    var validEdges = 0;
+    for (var e = 0; e < nEdges; e++) {
+      var ed = edges[e];
+      var si = idx[ed.source], ti = idx[ed.target];
+      if (si == null || ti == null || si === ti) continue;
+      edgeS[validEdges] = si;
+      edgeT[validEdges] = ti;
+      edgeW[validEdges] = ed.weight != null ? ed.weight : 1;
+      validEdges++;
+      mass[si] += 1;
+      mass[ti] += 1;
+    }
+
+    // ----- Main loop ----------------------------------------------------
+    var globalSpeed = 1;
+
+    for (var it = 0; it < iterations; it++) {
+      // Save previous net force per node (used by the swinging damping).
+      for (var k = 0; k < N; k++) {
+        oldDx[k] = dx[k]; oldDy[k] = dy[k];
+        dx[k] = 0; dy[k] = 0;
+      }
+
+      // Repulsion: O(N²). Linear in 1/distance, scaled by node masses.
+      for (var i1 = 0; i1 < N; i1++) {
+        for (var j1 = i1 + 1; j1 < N; j1++) {
+          var rx = x[i1] - x[j1];
+          var ry = y[i1] - y[j1];
+          var d = Math.sqrt(rx * rx + ry * ry);
+          var f;
+          if (preventOverlap) {
+            var sep = d - radius[i1] - radius[j1];
+            if (sep > 0) {
+              f = scalingRatio * mass[i1] * mass[j1] / sep;
+            } else {
+              // Strongly repel when boxes overlap
+              f = 100 * scalingRatio * mass[i1] * mass[j1];
+            }
+          } else {
+            if (d < 0.01) d = 0.01;
+            f = scalingRatio * mass[i1] * mass[j1] / d;
+          }
+          if (d < 0.01) d = 0.01;
+          var fx = (rx / d) * f, fy = (ry / d) * f;
+          dx[i1] += fx; dy[i1] += fy;
+          dx[j1] -= fx; dy[j1] -= fy;
+        }
+      }
+
+      // Attraction along edges: linear in distance.
+      for (var ei = 0; ei < validEdges; ei++) {
+        var si2 = edgeS[ei], ti2 = edgeT[ei];
+        var ax = x[ti2] - x[si2];
+        var ay = y[ti2] - y[si2];
+        var fA = edgeW[ei];
+        dx[si2] += ax * fA; dy[si2] += ay * fA;
+        dx[ti2] -= ax * fA; dy[ti2] -= ay * fA;
+      }
+
+      // Gravity toward origin: keeps disconnected components from drifting.
+      for (var gi = 0; gi < N; gi++) {
+        var gd = Math.sqrt(x[gi] * x[gi] + y[gi] * y[gi]);
+        if (gd < 0.01) gd = 0.01;
+        var gf = gravity * mass[gi];
+        dx[gi] -= (x[gi] / gd) * gf;
+        dy[gi] -= (y[gi] / gd) * gf;
+      }
+
+      // Adaptive global speed (the heart of FA2's stability).
+      var totalSwing = 0, totalTraction = 0;
+      for (var s = 0; s < N; s++) {
+        var swdx = oldDx[s] - dx[s], swdy = oldDy[s] - dy[s];
+        var swing = Math.sqrt(swdx * swdx + swdy * swdy);
+        var trdx = oldDx[s] + dx[s], trdy = oldDy[s] + dy[s];
+        var traction = 0.5 * Math.sqrt(trdx * trdx + trdy * trdy);
+        totalSwing    += mass[s] * swing;
+        totalTraction += mass[s] * traction;
+      }
+      var targetSpeed = jitterTol * totalTraction / (totalSwing > 0 ? totalSwing : 1);
+      // Don't accelerate too fast.
+      var maxRise = 0.5;
+      globalSpeed = globalSpeed + Math.min(targetSpeed - globalSpeed, maxRise * globalSpeed);
+
+      // Per-node displacement, damped by local "swinging".
+      for (var u = 0; u < N; u++) {
+        var swxu = oldDx[u] - dx[u], swyu = oldDy[u] - dy[u];
+        var nodeSwing = mass[u] * Math.sqrt(swxu * swxu + swyu * swyu);
+        var factor = globalSpeed / (1 + Math.sqrt(globalSpeed * nodeSwing));
+        // Cap per-step displacement so a single huge force can't yeet a
+        // node across the canvas.
+        var disp = Math.sqrt(dx[u] * dx[u] + dy[u] * dy[u]);
+        if (disp * factor > 10) factor = 10 / disp;
+        x[u] += dx[u] * factor / slowDown;
+        y[u] += dy[u] * factor / slowDown;
+      }
+    }
+
+    // ----- Pack into the library's position format ----------------------
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (var p = 0; p < N; p++) {
+      if (x[p] < minX) minX = x[p];
+      if (y[p] < minY) minY = y[p];
+      if (x[p] > maxX) maxX = x[p];
+      if (y[p] > maxY) maxY = y[p];
+    }
+    var pad = 60;
+    var positions = {};
+    for (var q = 0; q < N; q++) {
+      var n2 = nodes[q];
+      var w = n2.width || nodeWidth;
+      var h = n2.height || nodeHeight;
+      positions[n2.id] = {
+        x: x[q] - minX + pad,
+        y: y[q] - minY + pad,
+        w: w, h: h,
+      };
+    }
+    return {
+      positions: positions,
+      width: (maxX - minX) + 2 * pad + nodeWidth,
+      height: (maxY - minY) + 2 * pad + nodeHeight,
+    };
+  }
+
+  // Registry of built-in named layouts. Custom layouts (passed as
+  // functions) are still supported and take precedence.
+  var LAYOUTS = {
+    auto: hierarchicalLayout,
+    hierarchical: hierarchicalLayout,
+    forceatlas2: forceAtlas2Layout,
+    fa2: forceAtlas2Layout,
+  };
 
   // ---------- Edge geometry ---------------------------------------------
 
@@ -334,6 +552,13 @@
 
   Graph.VERSION = "0.1.0";
 
+  // Expose built-in layouts as a static for tests and for users that want
+  // to call a layout standalone (e.g. to precompute positions on a worker).
+  Graph.layouts = {
+    hierarchical: hierarchicalLayout,
+    forceatlas2: forceAtlas2Layout,
+  };
+
   // ----- DOM scaffolding ------------------------------------------------
 
   Graph.prototype._buildDom = function () {
@@ -443,35 +668,47 @@
   // ----- Layout / geometry ---------------------------------------------
 
   Graph.prototype._relayout = function () {
-    var layoutFn = this.options.layout;
-    var r;
-    if (typeof layoutFn === "function") {
-      r = layoutFn(this.nodes, this.edges, {
-        direction: this._state.dir,
-        nodeWidth: this.options.nodeWidth,
-        nodeHeight: this.options.nodeHeight,
-        rankSeparation: this.options.rankSeparation,
-        nodeSeparation: this.options.nodeSeparation,
-      });
+    // Resolve the layout spec: function | "auto" / "hierarchical" /
+    // "forceatlas2" / "fa2" | { name, ...opts } | undefined.
+    var spec = this.options.layout;
+    var layoutFn, layoutOpts;
+    if (typeof spec === "function") {
+      layoutFn = spec;
+      layoutOpts = this.options.layoutOptions || {};
+    } else if (spec && typeof spec === "object" && spec.name) {
+      layoutFn = LAYOUTS[spec.name] || LAYOUTS.auto;
+      layoutOpts = spec; // pass the whole object so per-algorithm options reach the layout
+    } else if (typeof spec === "string" && LAYOUTS[spec]) {
+      layoutFn = LAYOUTS[spec];
+      layoutOpts = this.options.layoutOptions || {};
     } else {
-      // "auto" — use built-in hierarchical layout, but honor explicit
-      // node.position overrides.
-      r = hierarchicalLayout(this.nodes, this.edges, {
-        direction: this._state.dir,
-        nodeWidth: this.options.nodeWidth,
-        nodeHeight: this.options.nodeHeight,
-        rankSeparation: this.options.rankSeparation,
-        nodeSeparation: this.options.nodeSeparation,
-      });
-      var NW = this.options.nodeWidth, NH = this.options.nodeHeight;
-      for (var i = 0; i < this.nodes.length; i++) {
-        var n = this.nodes[i];
-        if (n.position && r.positions[n.id]) {
-          r.positions[n.id] = {
-            x: n.position.x, y: n.position.y,
-            w: n.width || NW, h: n.height || NH,
-          };
-        }
+      layoutFn = LAYOUTS.auto;
+      layoutOpts = this.options.layoutOptions || {};
+    }
+
+    var baseOpts = {
+      direction: this._state.dir,
+      nodeWidth: this.options.nodeWidth,
+      nodeHeight: this.options.nodeHeight,
+      rankSeparation: this.options.rankSeparation,
+      nodeSeparation: this.options.nodeSeparation,
+    };
+    // Merge: caller-supplied options override base defaults.
+    for (var k in layoutOpts) baseOpts[k] = layoutOpts[k];
+
+    var r = layoutFn(this.nodes, this.edges, baseOpts);
+
+    // Honor per-node `position` overrides regardless of which layout was
+    // chosen — useful for pinning specific nodes while everything else
+    // is auto-arranged.
+    var NW = this.options.nodeWidth, NH = this.options.nodeHeight;
+    for (var i = 0; i < this.nodes.length; i++) {
+      var n = this.nodes[i];
+      if (n.position && r.positions[n.id]) {
+        r.positions[n.id] = {
+          x: n.position.x, y: n.position.y,
+          w: n.width || NW, h: n.height || NH,
+        };
       }
     }
     this._state.positions = r.positions;
@@ -1254,6 +1491,24 @@
     this._renderNodes();
     this._refreshToolbar();
     this.fitView();
+  };
+  /** Public: change the layout algorithm at runtime. Accepts the same
+   *  values as the `layout` constructor option (string name, object
+   *  with `name`, or a function). */
+  Graph.prototype.setLayout = function (spec) {
+    this.options.layout = spec;
+    this._releaseDragSnapshot();
+    this._relayout();
+    this._renderNodes();
+    this._refreshToolbar();
+    this.fitView();
+  };
+  Graph.prototype.getLayoutName = function () {
+    var s = this.options.layout;
+    if (typeof s === "string") return s;
+    if (s && typeof s === "object" && s.name) return s.name;
+    if (typeof s === "function") return "custom";
+    return "auto";
   };
   Graph.prototype._clearDomCache = function () {
     for (var id in this._domNodes) this._domNodes[id].remove();

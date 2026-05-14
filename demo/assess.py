@@ -238,6 +238,182 @@ def run_suite(engine: str) -> int:
         report.add("node.position overrides auto layout (A)", static["pa"]["x"] == 50 and static["pa"]["y"] == 50, str(static["pa"]))
         report.add("node.position overrides auto layout (B)", static["pb"]["x"] == 200 and static["pb"]["y"] == 150, str(static["pb"]))
 
+        # --- ForceAtlas2 layout ------------------------------------------
+        # Tests the new built-in named layout. Validates: API surface,
+        # determinism with a seed, clustering behavior (connected nodes
+        # end up closer than disconnected), and standalone usage via the
+        # exported Graph.layouts registry.
+        print("\nForceAtlas2 layout:")
+        report.add(
+            "Graph.layouts.forceatlas2 exposed",
+            page.evaluate("typeof Graph.layouts.forceatlas2 === 'function'"),
+        )
+
+        # API: `layout: "forceatlas2"` via constructor.
+        fa2_api = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width = '600px'; el.style.height = '400px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes: [{id:'a'},{id:'b'},{id:'c'},{id:'d'}],
+                    edges: [{id:'e1',source:'a',target:'b'},
+                            {id:'e2',source:'b',target:'c'},
+                            {id:'e3',source:'a',target:'c'}],
+                    layout: "forceatlas2",
+                    layoutOptions: { iterations: 100, seed: 42 },
+                });
+                const pa = g.getNodePosition('a');
+                const pb = g.getNodePosition('b');
+                const pc = g.getNodePosition('c');
+                const pd = g.getNodePosition('d');
+                g.destroy();
+                el.remove();
+                return { pa, pb, pc, pd };
+            }"""
+        )
+        report.add(
+            "constructor accepts layout: \"forceatlas2\"",
+            all(fa2_api[k] is not None for k in ("pa", "pb", "pc", "pd")),
+        )
+
+        # Clustering: nodes in the triangle should be mutually closer
+        # than to the isolated node 'd'.
+        def dist(p, q): return ((p["x"] - q["x"]) ** 2 + (p["y"] - q["y"]) ** 2) ** 0.5
+        pa, pb, pc, pd = fa2_api["pa"], fa2_api["pb"], fa2_api["pc"], fa2_api["pd"]
+        triangle_max = max(dist(pa, pb), dist(pb, pc), dist(pa, pc))
+        to_isolated_min = min(dist(pa, pd), dist(pb, pd), dist(pc, pd))
+        report.add(
+            "FA2 places triangle members closer than the isolated node",
+            triangle_max < to_isolated_min,
+            f"triangle_max={triangle_max:.1f} < to_isolated_min={to_isolated_min:.1f}",
+        )
+
+        # Determinism with a seed: two runs of the same input must agree.
+        det = page.evaluate(
+            """() => {
+                const nodes = [{id:'a'},{id:'b'},{id:'c'},{id:'d'},{id:'e'}];
+                const edges = [{id:'1',source:'a',target:'b'},
+                               {id:'2',source:'c',target:'d'},
+                               {id:'3',source:'d',target:'e'}];
+                const opts = { iterations: 80, seed: 7, nodeWidth: 100, nodeHeight: 40 };
+                const r1 = Graph.layouts.forceatlas2(nodes, edges, opts);
+                const r2 = Graph.layouts.forceatlas2(nodes, edges, opts);
+                // Compare position of every node.
+                let maxDelta = 0;
+                for (const id in r1.positions) {
+                    const a = r1.positions[id], b = r2.positions[id];
+                    maxDelta = Math.max(maxDelta, Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+                }
+                return { maxDelta };
+            }"""
+        )
+        report.add(
+            "FA2 is deterministic with the same seed",
+            det["maxDelta"] < 1e-6,
+            f"maxDelta={det['maxDelta']:.2e}",
+        )
+
+        # Two-cluster test: a barbell (two triangles + one bridge edge)
+        # should produce two visible clusters in space.
+        barbell = page.evaluate(
+            """() => {
+                const nodes = [
+                  {id:'a1'},{id:'a2'},{id:'a3'},  // cluster A
+                  {id:'b1'},{id:'b2'},{id:'b3'},  // cluster B
+                ];
+                const edges = [
+                  // Triangle A
+                  {id:'e1',source:'a1',target:'a2'},
+                  {id:'e2',source:'a2',target:'a3'},
+                  {id:'e3',source:'a1',target:'a3'},
+                  // Triangle B
+                  {id:'e4',source:'b1',target:'b2'},
+                  {id:'e5',source:'b2',target:'b3'},
+                  {id:'e6',source:'b1',target:'b3'},
+                  // Bridge
+                  {id:'e7',source:'a1',target:'b1'},
+                ];
+                const r = Graph.layouts.forceatlas2(nodes, edges, {
+                    iterations: 200, seed: 1, nodeWidth: 80, nodeHeight: 30,
+                });
+                return r.positions;
+            }"""
+        )
+        # Within-cluster mean distance vs cross-cluster mean distance.
+        def dpos(a, b): return ((a["x"] - b["x"]) ** 2 + (a["y"] - b["y"]) ** 2) ** 0.5
+        clA = [barbell["a1"], barbell["a2"], barbell["a3"]]
+        clB = [barbell["b1"], barbell["b2"], barbell["b3"]]
+        within = sum(dpos(clA[i], clA[j]) for i in range(3) for j in range(i + 1, 3))
+        within += sum(dpos(clB[i], clB[j]) for i in range(3) for j in range(i + 1, 3))
+        within /= 6
+        across = sum(dpos(a, b) for a in clA for b in clB) / 9
+        report.add(
+            "FA2 separates two clusters connected by one bridge",
+            across > within * 1.4,
+            f"across={across:.1f} vs within={within:.1f} (ratio {across / max(within, 1e-9):.2f})",
+        )
+
+        # No-edge graph: should still produce valid positions, no crash.
+        empty = page.evaluate(
+            """() => {
+                try {
+                    const r = Graph.layouts.forceatlas2(
+                        [{id:'a'},{id:'b'},{id:'c'}],
+                        [],
+                        { iterations: 30, seed: 1 }
+                    );
+                    return { ok: true, count: Object.keys(r.positions).length };
+                } catch (e) { return { ok: false, error: String(e) }; }
+            }"""
+        )
+        report.add("FA2 handles a graph with zero edges", empty["ok"] and empty["count"] == 3,
+                   str(empty))
+
+        # Object form: layout: { name: "forceatlas2", iterations: ... }.
+        object_form = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width = '400px'; el.style.height = '300px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes: [{id:'a'},{id:'b'}],
+                    edges: [{id:'e',source:'a',target:'b'}],
+                    layout: { name: "forceatlas2", iterations: 20, seed: 5, gravity: 5 },
+                });
+                const ok = g.getNodePosition('a') != null && g.getNodePosition('b') != null;
+                g.destroy(); el.remove();
+                return ok;
+            }"""
+        )
+        report.add("constructor accepts layout: { name: ... } object form", object_form)
+
+        # Per-node `position` overrides are honored even with FA2.
+        override = page.evaluate(
+            """() => {
+                const el = document.createElement('div');
+                el.style.width = '400px'; el.style.height = '300px';
+                document.body.appendChild(el);
+                const g = new Graph(el, {
+                    nodes: [
+                      { id: 'pinned', position: { x: 999, y: 555 } },
+                      { id: 'free' },
+                    ],
+                    edges: [{ id: 'e', source: 'pinned', target: 'free' }],
+                    layout: "forceatlas2",
+                    layoutOptions: { iterations: 20, seed: 3 },
+                });
+                const p = g.getNodePosition('pinned');
+                g.destroy(); el.remove();
+                return p;
+            }"""
+        )
+        report.add(
+            "node.position pins a node even under FA2 layout",
+            override["x"] == 999 and override["y"] == 555,
+            str(override),
+        )
+
         # --- Lifecycle ---------------------------------------------------
         print("\nLifecycle:")
         cleaned = page.evaluate(

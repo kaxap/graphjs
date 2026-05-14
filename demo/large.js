@@ -123,6 +123,27 @@
   var buildMs = performance.now() - t1;
   document.getElementById("stat-build").textContent = (genMs + buildMs).toFixed(0);
 
+  // ---- Layout selector ---------------------------------------------------
+  // FA2 on 1000 nodes is O(N²) per iteration; default to fewer iterations
+  // so the switch isn't punishingly slow. The layered DAG starting point
+  // helps FA2 converge with less work.
+  graph.addToolbarButton({
+    id: "lay-auto", label: "Hier",
+    title: "Hierarchical layered layout (default)",
+    onClick: function (g) { g.setLayout("auto"); },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "auto" || n === "hierarchical"; },
+  }, { newGroup: true });
+  graph.addToolbarButton({
+    id: "lay-fa2", label: "FA2",
+    title: "ForceAtlas2 — slower at 1000 nodes; reduce iterations if needed",
+    onClick: function (g) {
+      var t0 = performance.now();
+      g.setLayout({ name: "forceatlas2", iterations: 60, seed: 1, gravity: 1, scalingRatio: 8 });
+      console.log("FA2 layout (1000 nodes / 3000 edges):", (performance.now() - t0).toFixed(0), "ms");
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "forceatlas2" || n === "fa2"; },
+  });
+
   // --- FPS meter (idle when nothing is moving) ------------------------------
   var fpsEl = document.getElementById("stat-fps");
   var frames = 0;

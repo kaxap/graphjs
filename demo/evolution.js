@@ -272,6 +272,23 @@
     },
   });
 
+  // Layout selector
+  graph.addToolbarButton({
+    id: "lay-auto", label: "Hier",
+    title: "Hierarchical (rank-based) — the default tree layout",
+    onClick: function (g) { g.setLayout("auto"); },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "auto" || n === "hierarchical"; },
+  }, { newGroup: true });
+  graph.addToolbarButton({
+    id: "lay-fa2", label: "FA2",
+    title: "ForceAtlas2 — clusters fan out from LUCA",
+    onClick: function (g) {
+      // Tree has 84 nodes / 22 ranks: more iterations help untangle it.
+      g.setLayout({ name: "forceatlas2", iterations: 250, seed: 3, gravity: 0.5, scalingRatio: 15 });
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "forceatlas2" || n === "fa2"; },
+  });
+
   // ----- Info pane on click --------------------------------------------
 
   var info = document.getElementById("info");

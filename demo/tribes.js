@@ -260,6 +260,46 @@
   });
   refreshButtons();
 
+  // ---- Layout selector -------------------------------------------------
+  // Default = static zhuz columns (each tribe has node.position set).
+  // Switching to FA2 requires stripping node.position so the algorithm
+  // can place tribes freely. Switching back restores the original
+  // hand-tuned columns.
+
+  function nodesWithPositions() {
+    return TRIBES.map(function (t) { return Object.assign({ label: t.name }, t); });
+  }
+  function nodesWithoutPositions() {
+    return TRIBES.map(function (t) {
+      var copy = Object.assign({ label: t.name }, t);
+      delete copy.position;
+      return copy;
+    });
+  }
+
+  graph.addToolbarButton({
+    id: "lay-zhuz", label: "Zhuz",
+    title: "Default: three columns by zhuz (Senior / Middle / Junior)",
+    onClick: function (g) {
+      g.setNodes(nodesWithPositions());
+      g.setLayout("auto");
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "auto" || n === "hierarchical"; },
+  }, { newGroup: true });
+  graph.addToolbarButton({
+    id: "lay-fa2", label: "FA2",
+    title: "ForceAtlas2 — clusters emerge from haplogroup similarity",
+    onClick: function (g) {
+      g.setNodes(nodesWithoutPositions());
+      g.setLayout({
+        name: "forceatlas2",
+        iterations: 300, seed: 5, gravity: 1, scalingRatio: 20,
+        preventOverlap: true,
+      });
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "forceatlas2" || n === "fa2"; },
+  });
+
   // ---- Info pane ------------------------------------------------------
 
   var info = document.getElementById("info");

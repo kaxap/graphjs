@@ -214,6 +214,36 @@
     }, i === 0 ? { newGroup: true } : undefined);
   });
 
+  // ----- Layout selector ------------------------------------------------
+  // Default = hand-tuned three-column layout (each actor has
+  // node.position set). FA2 strips those overrides so actors are placed
+  // by their connectivity instead of by role.
+  function nodesWithPositions() {
+    return ACTORS.map(function (a) { return Object.assign({ label: a.name }, a); });
+  }
+  function nodesWithoutPositions() {
+    return ACTORS.map(function (a) {
+      var c = Object.assign({ label: a.name }, a);
+      delete c.position;
+      return c;
+    });
+  }
+  graph.addToolbarButton({
+    id: "lay-roles", label: "Roles",
+    title: "Default: actors grouped by role (Iran's network / mediators / Israel-US)",
+    onClick: function (g) { g.setNodes(nodesWithPositions()); g.setLayout("auto"); },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "auto" || n === "hierarchical"; },
+  }, { newGroup: true });
+  graph.addToolbarButton({
+    id: "lay-fa2", label: "FA2",
+    title: "ForceAtlas2 — clusters by connectivity",
+    onClick: function (g) {
+      g.setNodes(nodesWithoutPositions());
+      g.setLayout({ name: "forceatlas2", iterations: 250, seed: 9, gravity: 1, scalingRatio: 18 });
+    },
+    pressed: function (g) { var n = g.getLayoutName(); return n === "forceatlas2" || n === "fa2"; },
+  });
+
   // ----- Info pane -------------------------------------------------------
 
   var info = document.getElementById("info");

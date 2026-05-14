@@ -137,6 +137,25 @@
     pressed: function () { return showColumns; },
   }, { newGroup: true });
 
+  // Layout selector — switch between the default hierarchical layout
+  // and ForceAtlas2 at runtime.
+  graph.addToolbarButton({
+    id: "lay-auto",
+    label: "Hier",
+    title: "Hierarchical (rank-based) layout",
+    onClick: function (g) { g.setLayout("auto"); },
+    pressed: function (g) { return g.getLayoutName() === "auto" || g.getLayoutName() === "hierarchical"; },
+  }, { newGroup: true });
+  graph.addToolbarButton({
+    id: "lay-fa2",
+    label: "FA2",
+    title: "ForceAtlas2 force-directed layout",
+    onClick: function (g) {
+      g.setLayout({ name: "forceatlas2", iterations: 200, seed: 1, gravity: 1, scalingRatio: 12 });
+    },
+    pressed: function (g) { return g.getLayoutName() === "forceatlas2" || g.getLayoutName() === "fa2"; },
+  });
+
   // Test hooks.
   window.__demo = {
     graph: graph,

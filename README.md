@@ -589,10 +589,94 @@ interface ToolbarButton {
 }
 ```
 
+### Switching layouts at runtime
+
+Every demo's toolbar now ends with a **layout selector** — two buttons
+that toggle between the demo's default and ForceAtlas2:
+
+| Demo | Default button label | FA2 button | Notes |
+|---|---|---|---|
+| Lineage | `Hier` | `FA2` | Both layouts work cleanly on the small DAG |
+| Tribes | `Zhuz` | `FA2` | FA2 drops the static zhuz columns so genetic clusters can emerge spatially — the C-M48 founder triangle (Naiman / Alimuly / Baiuly) becomes a *spatial* triangle |
+| Iran 2025 | `Roles` | `FA2` | FA2 drops the role-based columns; Iran's proxies cluster around Iran, mediators sit on one side, Israel-US on the other |
+| Evolution | `Hier` | `FA2` | FA2 turns the 22-rank LR tree into a radial fan-out from LUCA |
+| Stress | `Hier` | `FA2` | FA2 with 1000 nodes is O(N²) — uses 60 iterations and takes a few seconds; works but slow |
+
+Programmatically the library exposes:
+
+```js
+graph.setLayout("forceatlas2");                  // string name
+graph.setLayout({ name: "forceatlas2",
+                  iterations: 300, seed: 7 });   // object with options
+graph.setLayout(myCustomLayoutFn);                // function
+graph.getLayoutName();                            // "auto" | "forceatlas2" | "custom" | ...
+```
+
+The static-positioned demos (tribes, Iran) maintain two versions of
+their node array — one with `node.position` set, one with it stripped —
+and swap which one is fed to `setNodes()` when the selector toggles, so
+that switching to FA2 lets the algorithm place nodes freely instead of
+honoring the hand-tuned columns.
+
+### Built-in layouts
+
+Two layout algorithms ship with the library:
+
+| Name | Aliases | What it does |
+|---|---|---|
+| `"hierarchical"` | `"auto"` (default) | Longest-path rank + barycenter ordering. Good for DAGs (lineage, evolution trees). |
+| `"forceatlas2"` | `"fa2"` | ForceAtlas2 (Jacomy et al., PLoS ONE 2014). Force-directed, naturally produces clusters. Good for similarity / kinship / network graphs without a clear top-down structure. |
+
+Select either by name:
+
+```js
+new Graph(container, { layout: "forceatlas2" });
+```
+
+Or with per-algorithm options:
+
+```js
+new Graph(container, {
+  layout: { name: "forceatlas2",
+            iterations: 200,
+            gravity: 1,
+            scalingRatio: 10,
+            preventOverlap: true,
+            jitterTolerance: 1,
+            seed: 42,           // deterministic initial placement
+          },
+});
+
+// equivalent form using layoutOptions:
+new Graph(container, {
+  layout: "forceatlas2",
+  layoutOptions: { iterations: 200, gravity: 1, seed: 42 },
+});
+```
+
+ForceAtlas2 options:
+
+- **`iterations`** (default `200`) — how long to run. More = more converged.
+- **`scalingRatio`** (default `10`) — strength of node repulsion. Larger values spread the graph out more.
+- **`gravity`** (default `1`) — pulls nodes toward the origin. Keeps disconnected components from drifting apart.
+- **`preventOverlap`** (default `true`) — short-range repulsion that keeps node boxes from interpenetrating.
+- **`jitterTolerance`** (default `1`) — adaptive-speed tuning. Larger = faster convergence but more wobble.
+- **`slowDown`** (default `1`) — divides per-frame displacement. Crank it up if the layout oscillates instead of settling.
+- **`seed`** (default `1`) — initial-placement RNG seed. **The same seed always produces the same layout** for the same graph, which is what the test suite relies on.
+- **`nodeWidth`** / **`nodeHeight`** — used for `preventOverlap`; defaults to the constructor's `nodeWidth` / `nodeHeight`.
+
+You can also call a layout directly without a `Graph` instance — useful for precomputing positions in a worker or generating screenshot fixtures:
+
+```js
+const result = Graph.layouts.forceatlas2(nodes, edges, {
+  iterations: 200, seed: 42, nodeWidth: 200, nodeHeight: 60,
+});
+// → { positions: { id: {x, y, w, h}, ... }, width, height }
+```
+
 ### Custom layout
 
-If you have a graph layout library you already like (Dagre, ELK,
-graphology layouts, hand-tuned coordinates), pass it in:
+If neither built-in fits, pass your own function:
 
 ```js
 new Graph(container, {
