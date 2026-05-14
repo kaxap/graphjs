@@ -47,8 +47,11 @@ built on top of `graph.js` with a custom `renderNode` and `edgeStyle`.*
   rather than 3000 SVG paths in the DOM.
 - **DOM-rendered nodes** so each card is a normal HTML element you can
   style with CSS, attach handlers to, and inspect with DevTools.
-- **Auto layout** (hierarchical, LR or TB) out of the box, with hooks
-  to swap in your own layout engine or static positions.
+- **Five built-in layouts**: hierarchical (LR or TB), plus four
+  force-directed algorithms — ForceAtlas2, Fruchterman–Reingold,
+  Yifan Hu, and OpenOrd. Selectable at construction or with
+  `setLayout(...)` at runtime; supports custom layout functions and
+  per-node `position` overrides.
 - **Built-in toolbar**, **expand buttons**, **minimap-style FPS readout**,
   **drag**, **pan**, **zoom**, **fit-view**, **selection**, **edge hover
   hit-testing**, and **destroy()** for clean teardown.
@@ -57,9 +60,6 @@ built on top of `graph.js` with a custom `renderNode` and `edgeStyle`.*
 
 It is **not**:
 
-- A force-directed layout. The built-in layout is hierarchical longest-
-  path ranking. Bring your own algorithm via the `layout` option if you
-  need something else.
 - A full diagramming tool. There's no orthogonal routing, no port-based
   connections, no rich text inside nodes (use your own HTML).
 - Production-tested. See the disclaimer at the top.
@@ -426,7 +426,8 @@ the container so make sure it has a size (`width`, `height`).
 | `nodes` | `Array<Node>` | `[]` | Initial node data. See [Node shape](#node-shape). |
 | `edges` | `Array<Edge>` | `[]` | Initial edges. See [Edge shape](#edge-shape). |
 | `direction` | `"LR" \| "TB"` | `"LR"` | Initial layout axis. |
-| `layout` | `"auto" \| Function` | `"auto"` | `"auto"` uses the built-in hierarchical layout. Pass a function to override — see [Custom layout](#custom-layout). |
+| `layout` | `string \| Object \| Function` | `"auto"` | One of `"hierarchical"` / `"forceatlas2"` / `"fr"` / `"yh"` / `"openord"` (with aliases), or an object `{ name, ...options }`, or a custom function. See [Built-in layouts](#built-in-layouts). |
+| `layoutOptions` | `Object` | `null` | Options object passed to a named layout (alternative to embedding them in the `layout` object). |
 | `nodeWidth` | `number` | `200` | Default card width in graph px. |
 | `nodeHeight` | `number` | `60` | Default card height. |
 | `rankSeparation` | `number` | `100` | Distance between layers. |
@@ -591,88 +592,178 @@ interface ToolbarButton {
 
 ### Switching layouts at runtime
 
-Every demo's toolbar now ends with a **layout selector** — two buttons
-that toggle between the demo's default and ForceAtlas2:
+Every demo's toolbar ends with a **layout selector** — five buttons
+that toggle between the demo's default hierarchical layout and four
+different force-directed algorithms:
 
-| Demo | Default button label | FA2 button | Notes |
-|---|---|---|---|
-| Lineage | `Hier` | `FA2` | Both layouts work cleanly on the small DAG |
-| Tribes | `Zhuz` | `FA2` | FA2 drops the static zhuz columns so genetic clusters can emerge spatially — the C-M48 founder triangle (Naiman / Alimuly / Baiuly) becomes a *spatial* triangle |
-| Iran 2025 | `Roles` | `FA2` | FA2 drops the role-based columns; Iran's proxies cluster around Iran, mediators sit on one side, Israel-US on the other |
-| Evolution | `Hier` | `FA2` | FA2 turns the 22-rank LR tree into a radial fan-out from LUCA |
-| Stress | `Hier` | `FA2` | FA2 with 1000 nodes is O(N²) — uses 60 iterations and takes a few seconds; works but slow |
+| Demo | Default button | FA2 / FR / YH / OO behavior |
+|---|---|---|
+| Lineage | `Hier` | All four force-directed algorithms re-arrange the small DAG by connectivity. |
+| Tribes | `Zhuz` | The force-directed layouts drop the static zhuz columns so genetic clusters emerge spatially — the C-M48 founder triangle becomes a *spatial* triangle under FA2/YH/OO. |
+| Iran 2025 | `Roles` | The force-directed layouts drop the role-based columns; Iran's proxies cluster around Iran, mediators sit on one side, Israel-US on the other. |
+| Evolution | `Hier` | FA2 turns the 22-rank LR tree into a radial fan-out from LUCA; YH/OO produce different organic arrangements. |
+| Stress (1000 n) | `Hier` | All force-directed layouts are O(N²) at this scale — uses 60-100 iterations and takes a few seconds. |
 
 Programmatically the library exposes:
 
 ```js
 graph.setLayout("forceatlas2");                  // string name
 graph.setLayout({ name: "forceatlas2",
-                  iterations: 300, seed: 7 });   // object with options
-graph.setLayout(myCustomLayoutFn);                // function
-graph.getLayoutName();                            // "auto" | "forceatlas2" | "custom" | ...
+                  iterations: 300, seed: 7 });   // object with per-algorithm options
+graph.setLayout(myCustomLayoutFn);               // function
+graph.getLayoutName();                           // "auto" | "forceatlas2" | "fr" | "yh" | "openord" | "custom" | ...
 ```
 
 The static-positioned demos (tribes, Iran) maintain two versions of
 their node array — one with `node.position` set, one with it stripped —
 and swap which one is fed to `setNodes()` when the selector toggles, so
-that switching to FA2 lets the algorithm place nodes freely instead of
-honoring the hand-tuned columns.
+that switching to a force-directed layout lets the algorithm place
+nodes freely instead of honoring the hand-tuned columns.
 
 ### Built-in layouts
 
-Two layout algorithms ship with the library:
+Five layout algorithms ship with the library:
 
-| Name | Aliases | What it does |
-|---|---|---|
-| `"hierarchical"` | `"auto"` (default) | Longest-path rank + barycenter ordering. Good for DAGs (lineage, evolution trees). |
-| `"forceatlas2"` | `"fa2"` | ForceAtlas2 (Jacomy et al., PLoS ONE 2014). Force-directed, naturally produces clusters. Good for similarity / kinship / network graphs without a clear top-down structure. |
+| Name | Aliases | What it does | Good for |
+|---|---|---|---|
+| `"hierarchical"` | `"auto"` (default) | Longest-path rank + barycenter ordering. Pure O(N+E). | DAGs, trees, lineage / evolution graphs |
+| `"forceatlas2"` | `"fa2"` | Linear repulsion (degree-weighted), linear attraction, adaptive global speed. Jacomy et al., PLoS ONE 2014. | Similarity / kinship / hub-and-spoke networks |
+| `"fruchterman-reingold"` | `"fr"`, `"fruchtermanReingold"` | Inverse-square repulsion, quadratic attraction, simulated-annealing temperature cooling. Fruchterman & Reingold, 1991. | Uniform-density network layouts |
+| `"yifan-hu"` | `"yh"`, `"yifanHu"` | FR-style forces with **adaptive step size** (energy-based) and weaker repulsion (C·K²/d). Hu, 2005. | Fast convergence, good general default |
+| `"openord"` | `"oo"`, `"openOrd"` | **Five-stage** schedule (liquid → expansion → cooldown → crunch → simmer) with random jumps in early stages. Martin et al., 2011. | Wide cluster separation, very large graphs |
 
-Select either by name:
+All implementations are O(N²) per iteration for force computation —
+fine up to ~1000 nodes. Beyond that you'd want Barnes-Hut quadtree
+acceleration, which would be a worthwhile extension but isn't here.
+
+Select any layout by name:
 
 ```js
 new Graph(container, { layout: "forceatlas2" });
+new Graph(container, { layout: "fr" });
+new Graph(container, { layout: "yh" });
+new Graph(container, { layout: "openord" });
 ```
 
-Or with per-algorithm options:
+Or with per-algorithm options (object form, equivalent to passing
+`layoutOptions`):
 
 ```js
 new Graph(container, {
   layout: { name: "forceatlas2",
-            iterations: 200,
-            gravity: 1,
-            scalingRatio: 10,
-            preventOverlap: true,
-            jitterTolerance: 1,
-            seed: 42,           // deterministic initial placement
-          },
+            iterations: 200, gravity: 1, scalingRatio: 10,
+            preventOverlap: true, seed: 42 },
 });
 
-// equivalent form using layoutOptions:
+// equivalent:
 new Graph(container, {
   layout: "forceatlas2",
   layoutOptions: { iterations: 200, gravity: 1, seed: 42 },
 });
 ```
 
-ForceAtlas2 options:
-
-- **`iterations`** (default `200`) — how long to run. More = more converged.
-- **`scalingRatio`** (default `10`) — strength of node repulsion. Larger values spread the graph out more.
-- **`gravity`** (default `1`) — pulls nodes toward the origin. Keeps disconnected components from drifting apart.
-- **`preventOverlap`** (default `true`) — short-range repulsion that keeps node boxes from interpenetrating.
-- **`jitterTolerance`** (default `1`) — adaptive-speed tuning. Larger = faster convergence but more wobble.
-- **`slowDown`** (default `1`) — divides per-frame displacement. Crank it up if the layout oscillates instead of settling.
-- **`seed`** (default `1`) — initial-placement RNG seed. **The same seed always produces the same layout** for the same graph, which is what the test suite relies on.
-- **`nodeWidth`** / **`nodeHeight`** — used for `preventOverlap`; defaults to the constructor's `nodeWidth` / `nodeHeight`.
-
-You can also call a layout directly without a `Graph` instance — useful for precomputing positions in a worker or generating screenshot fixtures:
+You can also call any layout directly without a `Graph` instance — useful for
+precomputing positions in a worker or generating screenshot fixtures:
 
 ```js
-const result = Graph.layouts.forceatlas2(nodes, edges, {
+const result = Graph.layouts.fruchtermanReingold(nodes, edges, {
   iterations: 200, seed: 42, nodeWidth: 200, nodeHeight: 60,
 });
 // → { positions: { id: {x, y, w, h}, ... }, width, height }
 ```
+
+Static methods exposed: `Graph.layouts.hierarchical`,
+`Graph.layouts.forceatlas2`, `Graph.layouts.fruchtermanReingold`,
+`Graph.layouts.yifanHu`, `Graph.layouts.openOrd`.
+
+#### Algorithm options
+
+All four force-directed layouts share these options:
+
+- **`iterations`** — how long to run. Default varies by algorithm
+  (FA2/FR/YH: 200, OpenOrd: 500). More = more converged.
+- **`seed`** (default `1`) — PRNG seed for the initial random placement.
+  **Same seed → same layout, bit-identical, every time** — this is
+  what the test suite uses for regression checks.
+- **`gravity`** — pulls nodes toward the origin. Higher = tighter
+  layout; keeps disconnected components from drifting. Defaults vary.
+- **`preventOverlap`** — short-range repulsion that keeps node boxes
+  from interpenetrating. Default `true` for FA2, `false` for the others.
+- **`nodeWidth`** / **`nodeHeight`** — used for `preventOverlap` and as
+  the box size in the returned positions. Defaults inherit from the
+  constructor.
+
+##### ForceAtlas2 (`"forceatlas2"`, `"fa2"`)
+
+- **`scalingRatio`** (default `10`) — strength of node repulsion.
+- **`jitterTolerance`** (default `1`) — adaptive-speed tuning. Larger =
+  faster convergence but more wobble.
+- **`slowDown`** (default `1`) — divides per-frame displacement.
+
+The hallmark of FA2 is **degree-weighted mass**: high-degree nodes get
+proportionally more repulsion, naturally producing hub-and-spoke
+arrangements.
+
+##### Fruchterman–Reingold (`"fr"`)
+
+- **`K`** (default `sqrt(area/N)`) — natural spring length / ideal edge
+  distance. The most impactful parameter.
+- **`area`** / **`width`** / **`height`** — drive K when not set
+  explicitly.
+- **`temperature`** (default `width * 0.1`) — initial maximum
+  per-iteration displacement. Cools linearly to ~0 over `iterations`.
+
+Repulsion ∝ K²/d (inverse-square), attraction ∝ d²/K (quadratic) — the
+classic 1991 formulation. Produces **uniformly-spaced** layouts. Linear
+temperature cooling means it keeps making large moves regardless of
+whether the layout has settled, which is why YH is often a better
+default.
+
+##### Yifan Hu (`"yh"`)
+
+- **`K`** / **`optimalDistance`** (default `100`) — equilibrium edge
+  length. Connected-pair distance settles around `K`; tune so it
+  comfortably exceeds your card width.
+- **`repulsion`** (default `0.2`) — the `C` constant in `f_rep = C·K²/d`.
+  Lower than FR by this factor.
+- **`stepRatio`** (default `0.9`) — adaptive cooling factor. After 5
+  successful (energy-decreasing) iterations the step grows by `1/0.9 ≈
+  1.11×`; on any energy increase it shrinks by `0.9×`.
+- **`initialStep`** (default `K`).
+- **`tolerance`** (default `1e-4`) — early-exit when total energy per
+  node drops below this.
+
+The killer feature is **adaptive step size**. The library's tests
+verify that YH positions are ~6× more stable between iteration 100 and
+iteration 200 than FR's, on the same graph and parameters — direct
+evidence the adaptive cooling is recognizing convergence and
+shrinking the step instead of forcing the same step every iteration
+like FR does.
+
+##### OpenOrd (`"openord"`)
+
+- **`K`** (default `100`) — base distance scale.
+- **`stages`** — array of 5 stage descriptors (one per stage). Each:
+  `{ name, frac, tempK, attract, jump }`. Defaults:
+  ```
+  liquid     frac 0.25  tempK 2.0   attract 0.2  jump 0.05
+  expansion  frac 0.25  tempK 1.5   attract 0.5  jump 0.02
+  cooldown   frac 0.25  tempK 0.6   attract 1.0  jump 0.005
+  crunch     frac 0.10  tempK 0.2   attract 1.5  jump 0
+  simmer     frac 0.15  tempK 0.05  attract 2.0  jump 0
+  ```
+  `tempK` is multiplied by `K` to get per-stage temperature. `attract`
+  scales the attractive force. `jump` is the per-node-per-iteration
+  random-teleport probability.
+
+OpenOrd's signature is **wide cluster separation with whitespace
+between blobs**. The random jumps in early stages help escape local
+minima — useful for very large graphs. **For small graphs (<20 nodes)
+the default schedule is too aggressive**: the high-temperature random
+jumps scatter nodes across thousands of pixels. The tribes demo
+illustrates the fix — supply a custom `stages` array with calmer
+parameters and no jumps. See [demo/tribes.js](demo/tribes.js) for the
+exact override.
 
 ### Custom layout
 
@@ -904,8 +995,10 @@ toggle, `destroy()` cleanup, and per-node `position` overrides.
 
 ## Known limitations
 
-- **Layout** is hierarchical longest-path only. No force-directed, no
-  orthogonal routing, no compound nodes. Bring your own via `layout`.
+- **Layout** ships with hierarchical + four force-directed
+  algorithms (FA2, FR, Yifan Hu, OpenOrd). No orthogonal routing, no
+  compound nodes, no Barnes-Hut acceleration (force-directed is O(N²),
+  practical up to ~1000 nodes). Bring your own via `layout`.
 - **Edge routing** is a cubic bezier between source/target anchors.
   Edges can overlap nodes if your layout puts a node directly between
   the endpoints.
